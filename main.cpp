@@ -1,4 +1,5 @@
 #include <boost/asio/io_context.hpp>
+#include "proto/service.capnp.h"
 
 namespace net = boost::asio;
 

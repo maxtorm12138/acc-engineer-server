@@ -15,13 +15,17 @@ find_package(Boost COMPONENTS REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core)
 find_package(CapnProto REQUIRED)
 
+capnp_generate_cpp(CAPNP_SRCS CAPNP_HDRS proto/service.capnp)
+
 add_executable(acc-engineer-server
-  main.cpp
+  main.cpp ${CAPNP_SRCS} ${CAPNP_HDRS}
 )
 
 target_link_libraries(acc-engineer-server Qt${QT_VERSION_MAJOR}::Core)
 target_link_libraries(acc-engineer-server Boost::boost)
 target_link_libraries(acc-engineer-server CapnProto::capnp)
+
+target_include_directories(acc-engineer-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_definitions(acc-engineer-server PRIVATE BOOST_ASIO_NO_DEPRECATED)
 
 install(TARGETS acc-engineer-server
