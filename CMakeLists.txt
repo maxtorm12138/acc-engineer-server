@@ -8,22 +8,21 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Boost COMPONENTS REQUIRED)
+find_package(Boost COMPONENTS program_options REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core)
-find_package(CapnProto REQUIRED)
-
-capnp_generate_cpp(CAPNP_SRCS CAPNP_HDRS proto/service.capnp)
+find_package(Protobuf REQUIRED)
+protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/service.proto)
 
 add_executable(acc-engineer-server
-  main.cpp ${CAPNP_SRCS} ${CAPNP_HDRS}
-)
+  main.cpp ${PROTO_SRCS} ${PROTO_HDRS}
+        config.h config.cpp service.cpp service.h)
 
 target_link_libraries(acc-engineer-server Qt${QT_VERSION_MAJOR}::Core)
-target_link_libraries(acc-engineer-server Boost::boost)
-target_link_libraries(acc-engineer-server CapnProto::capnp)
+target_link_libraries(acc-engineer-server Boost::boost Boost::program_options)
+target_link_libraries(acc-engineer-server protobuf::libprotobuf)
 
 target_include_directories(acc-engineer-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_definitions(acc-engineer-server PRIVATE BOOST_ASIO_NO_DEPRECATED)
