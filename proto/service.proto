@@ -12,6 +12,7 @@ message IssueTicketRequest
 message IssueTicketResponse
 {
   string ticket = 1;
+  uint64 id = 2;
 
   int64 error_code = 100;
   string error_message = 101;
@@ -20,6 +21,7 @@ message IssueTicketResponse
 message ClientConnectionRequest
 {
   string ticket = 1;
+  uint64 id = 2;
 }
 
 message ClientConnectionResponse
@@ -28,9 +30,23 @@ message ClientConnectionResponse
   string error_message = 101;
 }
 
+message OnlineNotifyRequest
+{
+  string username = 1;
+  uint64 id = 2;
+}
+
+message OfflineNotifyRequest
+{
+  string username = 1;
+  uint64 id = 2;
+}
+
 enum Method
 {
   Echo = 0;
   IssueTicket = 1;
   ClientConnection = 2;
+  OnlineNotify = 3;
+  OfflineNotify = 4;
 }

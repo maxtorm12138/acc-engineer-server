@@ -20,12 +20,20 @@ add_executable(acc-engineer-server
   main.cpp ${PROTO_SRCS} ${PROTO_HDRS}
         config.h config.cpp service.cpp service.h)
 
+add_executable(acc-engineer-server-test
+        test/main.cpp ${PROTO_SRCS} ${PROTO_HDRS}
+        config.h config.cpp service.cpp service.h)
+
 target_link_libraries(acc-engineer-server Qt${QT_VERSION_MAJOR}::Core)
 target_link_libraries(acc-engineer-server Boost::boost Boost::program_options)
 target_link_libraries(acc-engineer-server protobuf::libprotobuf)
 
+target_link_libraries(acc-engineer-server-test Qt${QT_VERSION_MAJOR}::Core)
+target_link_libraries(acc-engineer-server-test Boost::boost Boost::program_options)
+target_link_libraries(acc-engineer-server-test protobuf::libprotobuf)
+
 target_include_directories(acc-engineer-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_definitions(acc-engineer-server PRIVATE BOOST_ASIO_NO_DEPRECATED)
 
-install(TARGETS acc-engineer-server
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+target_include_directories(acc-engineer-server-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_compile_definitions(acc-engineer-server-test PRIVATE BOOST_ASIO_NO_DEPRECATED)

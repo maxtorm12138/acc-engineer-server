@@ -17,6 +17,8 @@ namespace acc_engineer
     struct session
     {
         std::string ticket;
+        uint64_t id;
+        std::string username;
         std::unique_ptr<boost::asio::ip::tcp::socket> tcp_socket_;
     };
 
@@ -34,6 +36,7 @@ namespace acc_engineer
     private:
         boost::asio::awaitable<void> issue_ticket(const IssueTicketRequest &req, boost::asio::ip::tcp::socket socket);
         boost::asio::awaitable<void> client_connection(const ClientConnectionRequest &req, boost::asio::ip::tcp::socket socket);
+        boost::asio::awaitable<void> online_notify(const std::string &ticket, const std::string &username, uint64_t id);
 
     private:
         boost::asio::io_context &io_context_;
