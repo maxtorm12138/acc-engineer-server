@@ -7,6 +7,9 @@
 #include <boost/asio/ip/udp.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/as_tuple.hpp>
+#include <boost/asio/experimental/channel.hpp>
 
 #include "config.h"
 
@@ -14,37 +17,41 @@
 
 namespace acc_engineer
 {
+    namespace net = boost::asio;
+
+    namespace detail
+    {
+        using awaitable_tuple_t = net::as_tuple_t<net::use_awaitable_t<>>;
+        using tcp_acceptor = awaitable_tuple_t::as_default_on_t<net::ip::tcp::acceptor>;
+        using tcp_socket = awaitable_tuple_t::as_default_on_t<net::ip::tcp::socket>;
+        using udp_socket = awaitable_tuple_t::as_default_on_t<net::ip::udp::socket>;
+
+    }
+
     struct session
     {
         std::string ticket;
-        uint64_t id;
-        std::string username;
-        std::unique_ptr<boost::asio::ip::tcp::socket> tcp_socket_;
+        std::string driver_name;
+        uint64_t driver_id;
+        net::ip::tcp::socket tcp_socket_;
+        net::ip::udp::endpoint udp_endpoint_;
     };
 
     class service
     {
     public:
-        service(boost::asio::io_context &io_context, const config &cfg);
+        service(config cfg);
 
-        void run();
-
-    private:
-        boost::asio::awaitable<void> listen();
-        boost::asio::awaitable<void> handshake(boost::asio::ip::tcp::socket socket);
+        net::awaitable<void> run();
+        net::awaitable<void> stop();
 
     private:
-        boost::asio::awaitable<void> issue_ticket(const IssueTicketRequest &req, boost::asio::ip::tcp::socket socket);
-        boost::asio::awaitable<void> client_connection(const ClientConnectionRequest &req, boost::asio::ip::tcp::socket socket);
-        boost::asio::awaitable<void> online_notify(const std::string &ticket, const std::string &username, uint64_t id);
+        net::awaitable<void> handshake(detail::tcp_socket socket);
 
     private:
-        boost::asio::io_context &io_context_;
-        boost::asio::ip::tcp::endpoint tcp_endpoint_;
-        boost::asio::ip::udp::endpoint udp_endpoint_;
-        std::unique_ptr<boost::asio::ip::tcp::acceptor> tcp_acceptor_;
-        std::unique_ptr<boost::asio::ip::udp::socket> udp_socket_;
-
+        config config_;
+        bool running_{false};
+        std::optional<detail::tcp_acceptor> acceptor_;
         std::unordered_map<std::string, session> sessions_;
     };
 }
