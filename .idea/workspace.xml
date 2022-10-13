@@ -3,25 +3,19 @@
   <component name="CMakeRunConfigurationManager" shouldGenerate="true" shouldDeleteObsolete="true">
     <generated>
       <config projectName="acc-engineer-server" targetName="acc-engineer-server" />
+      <config projectName="acc-engineer-server" targetName="acc-engineer-server-test" />
     </generated>
   </component>
   <component name="CMakeSettings" AUTO_RELOAD="true">
     <configurations>
-      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" GENERATION_OPTIONS="-DQt6_DIR=/Users/maxtorm/Qt/6.4.0/macos/lib/cmake/Qt6" />
-      <configuration PROFILE_NAME="Release" ENABLED="true" CONFIG_NAME="Release" GENERATION_OPTIONS="-DQt6_DIR=/Users/maxtorm/Qt/6.4.0/macos/lib/cmake/Qt6" />
+      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" TOOLCHAIN_NAME="Clang 14" GENERATION_OPTIONS="-DQt6_DIR=/Users/maxtorm/Qt/6.4.0/macos/lib/cmake/Qt6" />
+      <configuration PROFILE_NAME="Release" ENABLED="true" CONFIG_NAME="Release" TOOLCHAIN_NAME="Clang 14" GENERATION_OPTIONS="-DQt6_DIR=/Users/maxtorm/Qt/6.4.0/macos/lib/cmake/Qt6" />
     </configurations>
   </component>
   <component name="ChangeListManager">
     <list default="true" id="a2c975b7-0285-41ca-b641-d14cd5a0f45a" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/config.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/config.h" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/proto/service.proto" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/main.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/proto/service.capnp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -59,9 +53,15 @@
     <property name="cmake.loaded.for.project" value="true" />
     <property name="nodejs_package_manager_path" value="npm" />
     <property name="settings.editor.selected.configurable" value="CMakeSettings" />
+    <property name="structure.view.defaults.are.configured" value="true" />
   </component>
-  <component name="RunManager">
-    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true">
+  <component name="RunManager" selected="CMake Application.acc-engineer-server">
+    <configuration default="true" type="CLionExternalRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="CLION.EXTERNAL.BUILD" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="acc-engineer-server-test" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="acc-engineer-server" TARGET_NAME="acc-engineer-server-test" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="acc-engineer-server" RUN_TARGET_NAME="acc-engineer-server-test">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -71,6 +71,10 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <list>
+      <item itemvalue="CMake Application.acc-engineer-server" />
+      <item itemvalue="CMake Application.acc-engineer-server-test" />
+    </list>
   </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
@@ -86,7 +90,9 @@
       <workItem from="1665483950679" duration="1279000" />
       <workItem from="1665486149179" duration="232000" />
       <workItem from="1665541980740" duration="310000" />
-      <workItem from="1665549509925" duration="17984000" />
+      <workItem from="1665549509925" duration="20617000" />
+      <workItem from="1665627475616" duration="4695000" />
+      <workItem from="1665645521269" duration="5844000" />
     </task>
     <servers />
   </component>
