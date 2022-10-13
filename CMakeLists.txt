@@ -37,3 +37,9 @@ target_compile_definitions(acc-engineer-server PRIVATE BOOST_ASIO_NO_DEPRECATED)
 
 target_include_directories(acc-engineer-server-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_definitions(acc-engineer-server-test PRIVATE BOOST_ASIO_NO_DEPRECATED)
+
+if (MSVC)
+target_compile_definitions(acc-engineer-server PRIVATE _WIN32_WINNT=0x0A00)
+target_compile_definitions(acc-engineer-server-test PRIVATE _WIN32_WINNT=0x0A00)
+  
+endif(MSVC)
