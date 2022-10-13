@@ -9,6 +9,7 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/as_tuple.hpp>
+#include <boost/asio/experimental/channel.hpp>
 
 #include "config.h"
 
