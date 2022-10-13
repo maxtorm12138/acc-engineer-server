@@ -6,7 +6,7 @@
 #include <boost/asio/detached.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/asio/read.hpp>
-
+#include <boost/asio/experimental/channel.hpp>
 #include "service.pb.h"
 #include "config.h"
 
