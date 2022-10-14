@@ -16,24 +16,29 @@ find_package(Qt6 REQUIRED COMPONENTS Core)
 find_package(Protobuf REQUIRED)
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/service.proto)
 
-add_executable(acc-engineer-server
-  main.cpp ${PROTO_SRCS} ${PROTO_HDRS}
-        config.h config.cpp service.cpp service.h)
+set(ACC_ENGINEER_SERVER_SRCS
+    src/config.cpp
+    src/config.h
+    src/rpc.cpp
+    src/rpc.h
+    src/service.cpp
+    src/service.h
+    src/main.cpp)
 
-add_executable(acc-engineer-server-test
-        test/main.cpp ${PROTO_SRCS} ${PROTO_HDRS}
-        config.h config.cpp service.cpp service.h)
+add_executable(acc-engineer-server ${ACC_ENGINEER_SERVER_SRCS} ${PROTO_SRCS} ${PROTO_HDRS})
 
-target_link_libraries(acc-engineer-server Qt${QT_VERSION_MAJOR}::Core)
 target_link_libraries(acc-engineer-server Boost::boost Boost::program_options)
 target_link_libraries(acc-engineer-server protobuf::libprotobuf)
 
-target_link_libraries(acc-engineer-server-test Qt${QT_VERSION_MAJOR}::Core)
-target_link_libraries(acc-engineer-server-test Boost::boost Boost::program_options)
-target_link_libraries(acc-engineer-server-test protobuf::libprotobuf)
-
 target_include_directories(acc-engineer-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
 target_compile_definitions(acc-engineer-server PRIVATE BOOST_ASIO_NO_DEPRECATED)
 
-target_include_directories(acc-engineer-server-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_compile_definitions(acc-engineer-server-test PRIVATE BOOST_ASIO_NO_DEPRECATED)
+if (MSVC)
+    target_compile_definitions(acc-engineer-server PRIVATE _WIN32_WINNT=0x0A00)
+endif()
+
+
+if (NOT ACC_ENGINEER_NO_BUILD_TESTS)
+    add_subdirectory(test/)
+endif()
