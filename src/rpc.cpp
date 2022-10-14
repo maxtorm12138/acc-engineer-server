@@ -6,6 +6,7 @@
 
 namespace acc_engineer::rpc
 {
+
     client_service::client_service(net::ip::tcp::socket &socket) : socket_(socket)
     {}
 
@@ -65,11 +66,6 @@ namespace acc_engineer::rpc
         return request_id;
     }
 
-    void server_service::register_method(uint64_t cmd_id, awaitable_method_t &&method)
-    {
-        methods_.emplace(cmd_id, std::forward<awaitable_method_t>(method));
-    }
-
     server_service::server_service(boost::asio::ip::tcp::socket &socket) : socket_(socket)
     {
     }
@@ -97,20 +93,20 @@ namespace acc_engineer::rpc
         }
     }
 
-    net::awaitable<void> server_service::invoke(uint64_t cmd_id, request_id_t request_id, std::string request_payloads)
+    net::awaitable<void> server_service::invoke(uint64_t cmd_id, request_id_t request_id, std::string request_payload)
     {
-        auto response_payloads = co_await methods_[cmd_id](std::move(request_payloads));
-        uint64_t response_size = response_payloads.size();
+        auto response_payload = co_await (*methods_[cmd_id])(cmd_id, request_id, std::move(request_payload));
+        uint64_t response_size = response_payload.size();
 
         std::array<net::const_buffer, 4> payloads{};
         payloads[0] = net::buffer(&cmd_id, sizeof(cmd_id));
         payloads[1] = net::buffer(request_id);
         payloads[2] = net::buffer(&response_size, sizeof(response_size));
-        payloads[3] = net::buffer(response_payloads);
+        payloads[3] = net::buffer(response_payload);
 
         co_await net::async_write(socket_, payloads, net::use_awaitable);
     }
 
-    std::unordered_map<uint64_t, awaitable_method_t> server_service::methods_;
+    std::unordered_map<uint64_t, std::unique_ptr<detail::method_base>> server_service::methods_;
 
 }

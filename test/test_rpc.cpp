@@ -10,18 +10,16 @@
 
 namespace net = boost::asio;
 namespace sys = boost::system;
+namespace proto = acc_engineer::proto;
+namespace rpc = acc_engineer::rpc;
 
 using namespace std::string_literals;
 
-net::awaitable<std::string> echo(std::string request)
+net::awaitable<proto::Echo::Response> echo(rpc::request_id_t request_id, const proto::Echo::Request &request)
 {
-    acc_engineer::proto::Echo echo_request;
-    echo_request.ParseFromString(request);
-
-    acc_engineer::proto::Echo echo_response;
-    echo_response.mutable_response()->set_message(echo_request.request().message());
-
-    co_return echo_response.SerializeAsString();
+    proto::Echo::Response response;
+    response.set_message(request.message());
+    co_return response;
 }
 
 net::awaitable<void> run_rpc_service(net::ip::tcp::socket socket)
@@ -34,7 +32,7 @@ net::awaitable<void> server(int argc, char *argv[])
 {
     auto executor = co_await net::this_coro::executor;
 
-    acc_engineer::rpc::server_service::register_method(0, echo);
+    acc_engineer::rpc::server_service::register_method<proto::Echo>(0, echo);
 
     net::ip::tcp::acceptor acceptor(executor, net::ip::tcp::endpoint{net::ip::make_address(argv[2]), static_cast<net::ip::port_type>(std::stoi(argv[3]))});
 
@@ -60,8 +58,8 @@ net::awaitable<void> client(int argc, char *argv[])
 
     for (;;)
     {
-        acc_engineer::proto::Echo request;
-        std::getline(std::cin, *request.mutable_request()->mutable_message());
+        proto::Echo::Request request;
+        std::getline(std::cin, *request.mutable_message());
 
         auto result = co_await rpc_client_service.async_call(request);
 
