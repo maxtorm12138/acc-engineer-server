@@ -2,7 +2,6 @@
 #define ACC_ENGINEER_SERVER_RPC_H
 
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/write.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/use_awaitable.hpp>
@@ -15,50 +14,130 @@
 
 namespace acc_engineer
 {
-	namespace net = boost::asio;
-	namespace sys = boost::system;
+    namespace net = boost::asio;
+    namespace sys = boost::system;
 
-	class rpc_caller : public boost::noncopyable
-	{
-	public:
-		net::awaitable<void> run();
+    namespace rpc
+    {
+        using request_id_t = std::array<uint8_t, 16>;
+        using message_channel_t = net::experimental::channel<void(sys::error_code, uint64_t, std::array<uint8_t, 16>, std::string)>;
+        using awaitable_method_t = std::function<net::awaitable<std::string>(std::string)>;
 
-		template<typename Method>
-		net::awaitable<sys::error_code> async_call_rpc(Method &method)
-		{
-			auto executor = co_await net::this_coro::executor;
+        template<typename T>
+        class result
+        {
+        public:
+            result(T &&value) : value_(std::forward<T>(value))
+            {}
 
-			auto uuid = uuid_generator_();
-			std::string request_id(uuid.begin(), uuid.end());
-			method.mutable_common()->set_request_id(request_id);
+            result(sys::error_code ec) : error_(ec)
+            {}
 
-			message_channel_t channel(executor, 1);
-			calling_.emplace(request_id, &channel);
+            result(const T &value) : value_(value)
+            {}
 
-			sys::error_code ec;
+            sys::error_code error()
+            {
+                return error_;
+            };
 
-			ec = co_await channel.async_send({}, method.SerializeAsString(), net::use_awaitable);
-			if (ec)
-			{
-				calling_.erase(request_id);
-				co_return ec;
-			}
+            T &value()
+            {
+                return *value_;
+            }
 
-			auto response = co_await channel.async_receive(net::redirect_error(net::use_awaitable, ec));
-			if (ec)
-			{
-				calling_.erase(request_id);
-				co_return ec;
-			}
+            const T &value() const
+            {
+                return *value_;
+            }
 
-			calling_.erase(request_id);
-		}
+            T &&take()
+            {
+                return std::move(*value_);
+            }
 
-	private:
-		using message_channel_t = net::experimental::channel<void(sys::error_code, std::string)>;
-		boost::uuids::random_generator uuid_generator_;
-		std::unordered_map<std::string, message_channel_t *> calling_;
-	};
+        private:
+            std::optional<T> value_;
+            sys::error_code error_{};
+        };
+
+        class client_service : public boost::noncopyable
+        {
+        public:
+            explicit client_service(net::ip::tcp::socket &socket);
+
+        public:
+            net::awaitable<void> run();
+
+            template<typename Method>
+            net::awaitable<result<Method>> async_call(Method &method)
+            {
+                auto executor = co_await net::this_coro::executor;
+
+                auto request_id = generate_request_id();
+                auto cmd_id = Method::descriptor()->options().GetExtension(proto::cmd_id);
+
+                auto receive_channel = std::make_shared<message_channel_t>(executor, 1);
+
+                auto[iter, exists] = calling_.emplace(request_id, receive_channel);
+
+                sys::error_code ec;
+                co_await send_channel_->async_send({}, cmd_id, request_id, method.SerializeAsString(), net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                {
+                    calling_.erase(request_id);
+                    co_return result<Method>(ec);
+                }
+
+                auto[_, _1, response_payloads] = co_await receive_channel->async_receive(net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                {
+                    calling_.erase(request_id);
+                    co_return result<Method>(ec);
+                }
+
+                Method response;
+                response.ParseFromString(response_payloads);
+
+                calling_.erase(request_id);
+
+                co_return result<Method>(response);
+            }
+
+        private:
+
+            request_id_t generate_request_id();
+
+            net::awaitable<void> receiver();
+
+            net::awaitable<void> sender();
+
+        private:
+            net::ip::tcp::socket &socket_;
+            boost::uuids::random_generator uuid_generator_;
+            std::optional<message_channel_t> send_channel_;
+            std::map<request_id_t, std::shared_ptr<message_channel_t>> calling_;
+        };
+
+        class server_service : public boost::noncopyable
+        {
+        public:
+            static void register_method(uint64_t cmd_id, awaitable_method_t &&method);
+
+        public:
+            explicit server_service(net::ip::tcp::socket &socket);
+
+        public:
+            net::awaitable<void> run();
+
+            net::awaitable<void> invoke(uint64_t cmd_id, request_id_t request_id, std::string request_payload);
+
+        private:
+            static std::unordered_map<uint64_t, awaitable_method_t> methods_;
+            net::ip::tcp::socket &socket_;
+        };
+    }
+
 
 }
 

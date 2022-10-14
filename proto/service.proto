@@ -1,5 +1,5 @@
 syntax = "proto3";
-package acc_engineer;
+package acc_engineer.proto;
 import "google/protobuf/descriptor.proto";
 
 extend google.protobuf.MessageOptions {
@@ -11,7 +11,6 @@ message RPCCommon
 	uint64 driver_id = 1;
 	bytes token = 2;
 	uint64 timestamp = 3;
-	bytes request_id = 4;
 }
 
 message Authentication
@@ -40,4 +39,26 @@ message Authentication
 		Request request = 3;
 		Response response = 4;
 	}
+}
+
+message Echo
+{
+	option(cmd_id) = 0;
+	message Request
+	{
+		string message = 1;
+	}
+
+	message Response
+	{
+		string message = 1;
+	}
+
+	RPCCommon common = 1;
+	oneof payload
+	{
+		Request request = 3;
+		Response response = 4;
+	}
+
 }

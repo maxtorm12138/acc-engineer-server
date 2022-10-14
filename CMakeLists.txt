@@ -17,13 +17,17 @@ find_package(Protobuf REQUIRED)
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/service.proto)
 
 set(ACC_ENGINEER_SERVER_SRCS
-    src/config.cpp
-    src/config.h
-    src/rpc.cpp
-    src/rpc.h
-    src/service.cpp
-    src/service.h
-    src/main.cpp)
+        src/config.cpp
+        src/config.h
+        src/rpc.cpp
+        src/rpc.h
+        src/service.cpp
+        src/service.h
+        src/main.cpp)
+
+set(ACC_ENGINEER_SERVER_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/ ${CMAKE_CURRENT_BINARY_DIR})
+set(ACC_ENGINEER_SERVER_TEST_PROTO_SRCS ${PROTO_SRCS} ${PROTO_HDRS})
+set(ACC_ENGINEER_SERVER_TEST_SRCS ${CMAKE_SOURCE_DIR}/src/config.cpp ${CMAKE_SOURCE_DIR}/src/rpc.cpp)
 
 add_executable(acc-engineer-server ${ACC_ENGINEER_SERVER_SRCS} ${PROTO_SRCS} ${PROTO_HDRS})
 

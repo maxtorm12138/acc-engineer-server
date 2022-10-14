@@ -10,6 +10,7 @@ net::awaitable<void> co_main(int argc, char *argv[])
 {
     auto config = acc_engineer::config::from_command_line(argc, argv);
     acc_engineer::service service(config);
+    co_return;
 }
 
 int main(int argc, char *argv[])
