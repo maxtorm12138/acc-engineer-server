@@ -14,6 +14,7 @@ namespace acc_engineer::rpc
     concept RPCMethodMessage =
     requires
     {
+        std::derived_from<message, google::protobuf::Message>;
         std::derived_from<typename message::Response, google::protobuf::Message>;
         std::derived_from<typename message::Request, google::protobuf::Message>;
     };
