@@ -10,6 +10,9 @@
 #include <boost/core/noncopyable.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/scope_exit.hpp>
+
+#include "detail/rpc/method.h"
+
 #include "service.pb.h"
 
 
@@ -24,48 +27,11 @@ namespace acc_engineer::rpc
     using request_id_t = std::array<uint8_t, 16>;
 }
 
-namespace acc_engineer::rpc::detail
-{
-    struct method_base
-    {
-        virtual net::awaitable<std::string> operator()(uint64_t cmd_id, request_id_t request_id, std::string request_payload) = 0;
-
-        virtual ~method_base() = default;
-    };
-}
 
 namespace acc_engineer::rpc
 {
 
-    template<typename MethodMessage, typename AwaitableMethod>
-    class method : public detail::method_base
-    {
-    public:
-        using request_type = typename MethodMessage::Request;
-        using response_type = typename MethodMessage::Response;
-
-    public:
-        explicit method(AwaitableMethod &&real_method) : real_method_(std::forward<AwaitableMethod>(real_method))
-        {}
-
-        virtual net::awaitable<std::string> operator()(uint64_t cmd_id, request_id_t request_id, std::string request_payload) override
-        {
-            request_type request;
-            request.ParseFromString(request_payload);
-
-            response_type response = co_await std::invoke(real_method_, request_id, request);
-
-            co_return response.SerializeAsString();
-        }
-
-    private:
-        AwaitableMethod real_method_;
-    };
-
-
-    using request_id_t = std::array<uint8_t, 16>;
     using message_channel_t = net::experimental::channel<void(sys::error_code, uint64_t, std::array<uint8_t, 16>, std::string)>;
-    using awaitable_method_t = std::function<net::awaitable<std::string>(std::string)>;
 
     template<typename T>
     class result
@@ -169,7 +135,7 @@ namespace acc_engineer::rpc
         template<typename MethodMessage, typename AwaitableMethod>
         static void register_method(uint64_t cmd_id, AwaitableMethod &&m)
         {
-            std::unique_ptr<detail::method_base> real_method(new method<MethodMessage, AwaitableMethod>(std::forward<AwaitableMethod>(m)));
+            std::unique_ptr<detail::method_base> real_method(new detail::method<MethodMessage, AwaitableMethod>(std::forward<AwaitableMethod>(m)));
             methods_.emplace(cmd_id, std::move(real_method));
         }
 

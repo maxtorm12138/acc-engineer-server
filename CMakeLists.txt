@@ -17,6 +17,7 @@ find_package(Protobuf REQUIRED)
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS proto/service.proto)
 
 set(ACC_ENGINEER_SERVER_SRCS
+        src/detail/rpc/method.h
         src/config.cpp
         src/config.h
         src/rpc.cpp

@@ -15,7 +15,7 @@ namespace rpc = acc_engineer::rpc;
 
 using namespace std::string_literals;
 
-net::awaitable<proto::Echo::Response> echo(rpc::request_id_t request_id, const proto::Echo::Request &request)
+net::awaitable<proto::Echo::Response> echo(rpc::request_id_type request_id, const proto::Echo::Request &request)
 {
     proto::Echo::Response response;
     response.set_message(request.message());
