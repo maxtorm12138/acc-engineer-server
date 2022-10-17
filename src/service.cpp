@@ -23,7 +23,7 @@ namespace acc_engineer
 
         net::co_spawn(co_await net::this_coro::executor, unix_domain_run(), net::detached);
         net::co_spawn(co_await net::this_coro::executor, udp_read_run(), net::detached);
-        net::co_spawn(co_await net::this_coro::executor, tcp_run(), net::detached);
+        co_await net::co_spawn(co_await net::this_coro::executor, tcp_run(), net::use_awaitable);
     }
 
     net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)

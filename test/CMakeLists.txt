@@ -14,3 +14,4 @@ function(ADD_ACC_ENGINEER_TEST)
 endfunction()
 
 ADD_ACC_ENGINEER_TEST(NAME test_rpc FILES test_rpc.cpp ${SERVICE_PROTO_FILES})
+ADD_ACC_ENGINEER_TEST(NAME test_client FILES test_client.cpp ${SERVICE_PROTO_FILES})
