@@ -34,7 +34,9 @@ namespace acc_engineer
 
         net::awaitable<void> udp_read_run();
 
-        net::awaitable<void> udp_write_run();
+        net::awaitable<void> udp_write_run(
+                net::ip::udp::socket &acceptor,
+                net::ip::udp::endpoint remote, std::shared_ptr<unix_socket_t> unix_socket);
 
         net::awaitable<void> unix_domain_run();
 
