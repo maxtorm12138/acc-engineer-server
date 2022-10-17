@@ -5,37 +5,22 @@
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ip/udp.hpp>
-#include <boost/asio/io_context.hpp>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/as_tuple.hpp>
-#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/local/stream_protocol.hpp>
 
+
+#include "rpc/stub.h"
 #include "config.h"
 
-#include "service.pb.h"
+#include "proto/service.pb.h"
 
 namespace acc_engineer
 {
     namespace net = boost::asio;
 
-    namespace detail
-    {
-        using awaitable_tuple_t = net::as_tuple_t<net::use_awaitable_t<>>;
-        using tcp_acceptor = awaitable_tuple_t::as_default_on_t<net::ip::tcp::acceptor>;
-        using tcp_socket = awaitable_tuple_t::as_default_on_t<net::ip::tcp::socket>;
-        using udp_socket = awaitable_tuple_t::as_default_on_t<net::ip::udp::socket>;
-
-    }
-
-    struct session
-    {
-        std::string ticket;
-        std::string driver_name;
-        uint64_t driver_id;
-        net::ip::tcp::socket tcp_socket_;
-        net::ip::udp::endpoint udp_endpoint_;
-    };
+    using tcp_stub_t = rpc::stub<net::ip::tcp::socket>;
+    using unix_socket_t = net::local::stream_protocol::socket;
+    using unix_domain_stub_t = rpc::stub<unix_socket_t>;
 
     class service
     {
@@ -43,18 +28,39 @@ namespace acc_engineer
         service(config cfg);
 
         net::awaitable<void> run();
-        net::awaitable<void> stop();
 
     private:
-        net::awaitable<void> handshake(detail::tcp_socket socket);
+        net::awaitable<void> tcp_run();
 
-    private:
+        net::awaitable<void> udp_read_run();
+
+        net::awaitable<void> udp_write_run();
+
+        net::awaitable<void> unix_domain_run();
+
+
+        net::awaitable<void> new_tcp_connection(net::ip::tcp::socket socket);
+
+        net::awaitable<void> new_unix_domain_connection(unix_socket_t socket);
+
+        net::awaitable<Echo::Response> echo(const Echo::Request &request);
+        //net::awaitable<rpc::result<Authentication::Response>> authentication(const Authentication::Request &request);
+
         config config_;
         bool running_{false};
-        std::optional<detail::tcp_acceptor> acceptor_;
-        std::unordered_map<std::string, session> sessions_;
+        rpc::method_group method_group_;
+
+        std::unordered_map<uint64_t, std::shared_ptr<tcp_stub_t>> id_tcp_stub_;
+        std::unordered_map<uint64_t, std::shared_ptr<unix_domain_stub_t>> id_unix_domain_stub_;
+        std::unordered_map<net::ip::udp::endpoint, std::shared_ptr<unix_socket_t>> ep_unix_socket_;
     };
 }
 
+template<>
+inline size_t
+std::hash<boost::asio::ip::udp::endpoint>::operator()(const boost::asio::ip::udp::endpoint &ep) const noexcept
+{
+    return 1;
+}
 
 #endif //ACC_ENGINEER_SERVER_SERVICE_H

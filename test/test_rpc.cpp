@@ -40,9 +40,10 @@ net::awaitable<void> server(int argc, char* argv[])
 
 	for (;;)
 	{
-		auto socket = co_await acceptor.async_accept(net::use_awaitable);
-		stubs.emplace_back(std::move(socket), method_group);
-	}
+        auto socket = co_await acceptor.async_accept(net::use_awaitable);
+        auto &stub = stubs.emplace_back(std::move(socket), method_group);
+        co_await stub.run();
+    }
 }
 
 
@@ -56,15 +57,16 @@ net::awaitable<void> client(int argc, char* argv[])
 		net::use_awaitable);
 
 	rpc::stub stub(std::move(socket));
+    co_await stub.run();
 
-	for (;;)
-	{
-		proto::Echo::Request request;
-		std::getline(std::cin, *request.mutable_message());
+    for (;;)
+    {
+        proto::Echo::Request request;
+        std::getline(std::cin, *request.mutable_message());
 
-		auto result = co_await stub.async_call<acc_engineer::Echo>(request);
-		std::cerr << "Response: " << result.value().ShortDebugString() << std::endl;
-	}
+        auto result = co_await stub.async_call<acc_engineer::Echo>(request);
+        std::cerr << "Response: " << result.value().ShortDebugString() << std::endl;
+    }
 }
 
 int main(int argc, char* argv[])

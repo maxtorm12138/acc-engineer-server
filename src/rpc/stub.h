@@ -15,6 +15,7 @@
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/detached.hpp>
 
 // module
 #include "error_code.h"
@@ -34,6 +35,8 @@ namespace acc_engineer::rpc
         stub(stub &&) noexcept = delete;
 
         stub &operator=(stub &&) noexcept = delete;
+
+        net::awaitable<void> run();
 
         template<method_message Message>
         net::awaitable<result<response_t<Message>>> async_call(const request_t<Message> &request);
@@ -83,10 +86,6 @@ namespace acc_engineer::rpc
             sender_channel_(stream_.get_executor()),
             stub_id_(generate_stub_id())
     {
-        status_ = stub_status::running;
-
-        net::co_spawn(stream_.get_executor(), sender_loop(), net::detached);
-        net::co_spawn(stream_.get_executor(), receiver_loop(), net::detached);
     }
 
     template<typename AsyncStream>
@@ -352,7 +351,7 @@ namespace acc_engineer::rpc
         if (!calling_.contains(trace_id))
         {
             // TODO message outdated;
-            spdlog::info("{} dispatch_response message out of date, cmd_id: {} cookie: \"{}\"", stub_id_, command_id, cookie.Utf8DebugString());
+            spdlog::info("{} dispatch_response message out of date, cmd_id: {} cookie: \"{}\"", stub_id_, command_id, cookie.ShortDebugString());
             co_return;
         }
         co_await calling_[trace_id]->async_send({}, std::move(cookie), std::move(response_message_payload), net::use_awaitable);
@@ -362,6 +361,15 @@ namespace acc_engineer::rpc
     uint64_t stub<AsyncStream>::id() const
     {
         return stub_id_;
+    }
+
+    template<typename AsyncStream>
+    net::awaitable<void> stub<AsyncStream>::run()
+    {
+        status_ = stub_status::running;
+
+        net::co_spawn(co_await net::this_coro::executor, sender_loop(), net::detached);
+        net::co_spawn(co_await net::this_coro::executor, receiver_loop(), net::detached);
     }
 }
 

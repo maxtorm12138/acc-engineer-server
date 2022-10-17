@@ -56,9 +56,19 @@ set(ACC_ENGINEER_SERVER_RPC_SRCS
         src/rpc/await_ec.h
         ${RPC_PROTO_FILES})
 
+add_library(acc-engineer-server-rpc ${ACC_ENGINEER_SERVER_RPC_SRCS})
+target_link_libraries(acc-engineer-server-rpc PRIVATE Boost::boost)
+target_link_libraries(acc-engineer-server-rpc PRIVATE protobuf::libprotobuf)
+target_link_libraries(acc-engineer-server-rpc PUBLIC spdlog::spdlog)
+target_include_directories(acc-engineer-server-rpc PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_compile_definitions(acc-engineer-server-rpc PRIVATE BOOST_ASIO_NO_DEPRECATED)
+if (MSVC)
+    target_compile_definitions(acc-engineer-server-rpc PRIVATE _WIN32_WINNT=0x0A00)
+endif ()
+
+
 set(ACC_ENGINEER_SERVER_SRCS
-        ${ACC_ENGINEER_SERVER_RPC_SRCS}
-        ${ACC_ENGINEER_PROTO_SRCS}
+        ${SERVICE_PROTO_FILES}
         src/config.cpp
         src/config.h
         src/service.cpp
@@ -66,7 +76,7 @@ set(ACC_ENGINEER_SERVER_SRCS
         src/main.cpp)
 
 add_executable(acc-engineer-server ${ACC_ENGINEER_SERVER_SRCS} ${PROTO_SRCS} ${PROTO_HDRS})
-
+target_link_libraries(acc-engineer-server acc-engineer-server-rpc)
 target_link_libraries(acc-engineer-server Boost::boost Boost::program_options)
 target_link_libraries(acc-engineer-server protobuf::libprotobuf)
 
