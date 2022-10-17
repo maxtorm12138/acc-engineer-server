@@ -8,33 +8,85 @@
 #include <spdlog/spdlog.h>
 
 // boost
-#include <boost/noncopyable.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/channel.hpp>
-#include <boost/asio/write.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/write.hpp>
+#include <boost/noncopyable.hpp>
 
 // module
+#include "await_ec.h"
 #include "error_code.h"
 #include "methods.h"
 #include "types.h"
-#include "await_ec.h"
+
+namespace acc_engineer::rpc::detail
+{
+    class stub_base
+    {
+    public:
+        explicit stub_base(const method_group &method_group) : method_group_(method_group), stub_id_(stub_id_max_++) {}
+        stub_base(const stub_base &) = delete;
+        stub_base &operator=(const stub_base &) = delete;
+        stub_base(stub_base &&) noexcept = delete;
+        stub_base &operator=(stub_base &&) noexcept = delete;
+        ~stub_base() = default;
+
+        std::string pack_payload(std::bitset<64> bit_flags, const rpc::Cookie &cookie, const google::protobuf::Message &message)
+        {
+            uint64_t payload_length{0};
+            uint64_t command_id = message.GetDescriptor()->options().GetExtension(rpc::cmd_id);
+            uint64_t flags = bit_flags.to_ullong();
+
+            payload_t cookie_payload;
+            if (!cookie.SerializeToString(&cookie_payload))
+            {
+                throw sys::system_error(system_error::proto_serialize_fail);
+            }
+            uint64_t cookie_payload_size = cookie_payload.size();
+
+            payload_t message_payload;
+            if (!message.SerializeToString(&message_payload))
+            {
+                throw sys::system_error(system_error::proto_serialize_fail);
+            }
+            uint64_t message_payload_size = message_payload.size();
+
+            const std::array payloads{
+                    net::buffer(&command_id, sizeof(command_id)),
+                    net::buffer(&flags, sizeof(flags)),
+                    net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
+                    net::buffer(&message_payload_size, sizeof(message_payload_size)),
+                    net::buffer(cookie_payload),
+                    net::buffer(message_payload)};
+        }
+
+    protected:
+        uint64_t generate_trace_id()
+        {
+            return trace_id_++;
+        }
+
+        const method_group &method_group_;
+        const uint64_t stub_id_;
+        uint64_t trace_id_{0};
+        static std::atomic<uint64_t> stub_id_max_;
+    };
+
+    std::atomic<uint64_t> stub_base::stub_id_max_{0};
+}// namespace acc_engineer::rpc::detail
 
 namespace acc_engineer::rpc
 {
 
     template<typename AsyncStream>
-    class stub : public boost::noncopyable
+    class stub : public detail::stub_base
     {
     public:
         explicit stub(AsyncStream stream, const method_group &method_group = method_group::empty_method_group());
-
-        stub(stub &&) noexcept = delete;
-
-        stub &operator=(stub &&) noexcept = delete;
 
         net::awaitable<void> run();
 
@@ -56,35 +108,26 @@ namespace acc_engineer::rpc
 
         using reply_channel_type = net::experimental::channel<void(sys::error_code, rpc::Cookie, payload_t)>;
 
-        uint64_t generate_trace_id();
-
-        static uint64_t generate_stub_id();
 
         net::awaitable<void> sender_loop();
 
         net::awaitable<void> receiver_loop();
-
-        void stub_error();
 
         net::awaitable<void> dispatch_request(uint64_t command_id, payload_t request_cookie_payload, payload_t request_message_payload);
 
         net::awaitable<void> dispatch_response(uint64_t command_id, payload_t response_cookie_payload, payload_t response_message_payload);
 
         AsyncStream stream_;
-        const method_group &method_group_;
         sender_channel_type sender_channel_;
-        const uint64_t stub_id_;
         stub_status status_{stub_status::idle};
         uint64_t trace_id_current_{0};
         std::unordered_map<uint64_t, reply_channel_type *> calling_{};
     };
 
     template<typename AsyncStream>
-    stub<AsyncStream>::stub(AsyncStream stream, const method_group &method_group) :
-            stream_(std::move(stream)),
-            method_group_(method_group),
-            sender_channel_(stream_.get_executor()),
-            stub_id_(generate_stub_id())
+    stub<AsyncStream>::stub(AsyncStream stream, const method_group &method_group) : stub_base(method_group),
+                                                                                    stream_(std::move(stream)),
+                                                                                    sender_channel_(stream_.get_executor())
     {
     }
 
@@ -120,19 +163,17 @@ namespace acc_engineer::rpc
 
             calling_[request_cookie.trace_id()] = &reply_channel;
 
-            const std::vector<net::const_buffer> request_payloads
-                    {
-                            net::buffer(&command_id, sizeof(command_id)),
-                            net::buffer(&flags, sizeof(flags)),
-                            net::buffer(&request_cookie_payload_size, sizeof(request_cookie_payload_size)),
-                            net::buffer(&request_message_payload_size, sizeof(request_message_payload_size)),
-                            net::buffer(request_cookie_payload),
-                            net::buffer(request_message_payload)
-                    };
+            const std::vector<net::const_buffer> request_payloads{
+                    net::buffer(&command_id, sizeof(command_id)),
+                    net::buffer(&flags, sizeof(flags)),
+                    net::buffer(&request_cookie_payload_size, sizeof(request_cookie_payload_size)),
+                    net::buffer(&request_message_payload_size, sizeof(request_message_payload_size)),
+                    net::buffer(request_cookie_payload),
+                    net::buffer(request_message_payload)};
 
             co_await sender_channel_.async_send({}, &request_payloads, net::use_awaitable);
 
-            auto[response_cookie, response_message_payload] = co_await reply_channel.async_receive(net::use_awaitable);
+            auto [response_cookie, response_message_payload] = co_await reply_channel.async_receive(net::use_awaitable);
 
             calling_.erase(request_cookie.trace_id());
 
@@ -166,19 +207,6 @@ namespace acc_engineer::rpc
         }
     }
 
-
-    template<typename AsyncStream>
-    uint64_t stub<AsyncStream>::generate_trace_id()
-    {
-        return trace_id_current_++;
-    }
-
-    template<typename AsyncStream>
-    uint64_t stub<AsyncStream>::generate_stub_id()
-    {
-        static std::atomic<uint64_t> stub_id_current{0};
-        return stub_id_current++;
-    }
 
     template<typename AsyncStream>
     net::awaitable<void> stub<AsyncStream>::sender_loop()
@@ -225,24 +253,21 @@ namespace acc_engineer::rpc
                 uint64_t cookie_payload_size = 0;
                 uint64_t message_payload_size = 0;
 
-                std::array header_payload
-                        {
-                                net::buffer(&command_id, sizeof(command_id)),
-                                net::buffer(&flags, sizeof(flags)),
-                                net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
-                                net::buffer(&message_payload_size, sizeof(message_payload_size)),
-                        };
+                std::array header_payload{
+                        net::buffer(&command_id, sizeof(command_id)),
+                        net::buffer(&flags, sizeof(flags)),
+                        net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
+                        net::buffer(&message_payload_size, sizeof(message_payload_size)),
+                };
 
 
                 co_await net::async_read(stream_, header_payload, net::use_awaitable);
                 payload_t cookie_payload(cookie_payload_size, '\0');
                 payload_t message_payload(message_payload_size, '\0');
 
-                std::array variable_data_payload
-                        {
-                                net::buffer(cookie_payload),
-                                net::buffer(message_payload)
-                        };
+                std::array variable_data_payload{
+                        net::buffer(cookie_payload),
+                        net::buffer(message_payload)};
 
                 co_await net::async_read(stream_, variable_data_payload, net::use_awaitable);
 
@@ -276,9 +301,7 @@ namespace acc_engineer::rpc
     template<typename AsyncStream>
     net::awaitable<void> stub<AsyncStream>::dispatch_request(uint64_t command_id, payload_t request_cookie_payload, payload_t request_message_payload)
     {
-        auto run_method = [this, command_id, request_cookie_payload = std::move(request_cookie_payload), request_message_payload = std::move(
-                request_message_payload)]() mutable -> net::awaitable<void>
-        {
+        auto run_method = [this, command_id, request_cookie_payload = std::move(request_cookie_payload), request_message_payload = std::move(request_message_payload)]() mutable -> net::awaitable<void> {
             rpc::Cookie cookie{};
             if (!cookie.ParseFromString(request_cookie_payload))
             {
@@ -318,18 +341,15 @@ namespace acc_engineer::rpc
             uint64_t response_cookie_payload_size = response_cookie_payload.size();
 
 
-            const std::vector<net::const_buffer> response_payloads
-                    {
-                            net::buffer(&command_id, sizeof(command_id)),
-                            net::buffer(&flags, sizeof(flags)),
-                            net::buffer(&response_cookie_payload_size, sizeof(response_cookie_payload_size)),
-                            net::buffer(&response_message_payload_size, sizeof(response_message_payload_size)),
-                            net::buffer(response_cookie_payload),
-                            net::buffer(result.value())
-                    };
+            const std::vector<net::const_buffer> response_payloads{
+                    net::buffer(&command_id, sizeof(command_id)),
+                    net::buffer(&flags, sizeof(flags)),
+                    net::buffer(&response_cookie_payload_size, sizeof(response_cookie_payload_size)),
+                    net::buffer(&response_message_payload_size, sizeof(response_message_payload_size)),
+                    net::buffer(response_cookie_payload),
+                    net::buffer(result.value())};
 
             co_await sender_channel_.async_send({}, &response_payloads, net::use_awaitable);
-
         };
 
         net::co_spawn(co_await net::this_coro::executor, run_method, net::detached);
@@ -371,6 +391,6 @@ namespace acc_engineer::rpc
         net::co_spawn(co_await net::this_coro::executor, sender_loop(), net::detached);
         net::co_spawn(co_await net::this_coro::executor, receiver_loop(), net::detached);
     }
-}
+}// namespace acc_engineer::rpc
 
-#endif //ACC_ENGINEER_SERVER_RPC_STUB_H
+#endif//ACC_ENGINEER_SERVER_RPC_STUB_H

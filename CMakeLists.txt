@@ -18,7 +18,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core)
 find_package(Protobuf REQUIRED)
 find_package(spdlog REQUIRED)
 
-FUNCTION(generate_proto PROTO_ROOT PROTO_FILE GENERATE_PATH OUT_FILES)
+function(generate_proto PROTO_ROOT PROTO_FILE GENERATE_PATH OUT_FILES)
     get_filename_component(PROTO_FILE ${PROTO_FILE} ABSOLUTE)
     get_filename_component(PROTO_ROOT ${PROTO_ROOT} ABSOLUTE)
     get_filename_component(PROTO_FILE_NAME ${PROTO_FILE} NAME)
@@ -34,12 +34,12 @@ FUNCTION(generate_proto PROTO_ROOT PROTO_FILE GENERATE_PATH OUT_FILES)
 
     execute_process(COMMAND ${PROTOBUF_PROTOC_EXECUTABLE} --proto_path=${NATIVE_PROTO_ROOT} --cpp_out=${NATIVE_GENERATE_PATH} ${NATIVE_PROTO_FILE} RESULT_VARIABLE RV)
 
-    IF (${RV})
+    if(${RV})
         message(FATAL_ERROR "Generation of data model returned ${RV} for proto ${NATIVE_PROTO_FILE}")
-    ENDIF ()
+    endif()
     set(${OUT_FILES} ${PROTO_CPP_SRC} ${PROTO_CPP_HDR} PARENT_SCOPE)
 
-ENDFUNCTION()
+endfunction()
 
 generate_proto(proto/ proto/rpc.proto ${CMAKE_CURRENT_BINARY_DIR}/proto RPC_PROTO_FILES)
 generate_proto(proto/ proto/service.proto ${CMAKE_CURRENT_BINARY_DIR}/proto SERVICE_PROTO_FILES)
