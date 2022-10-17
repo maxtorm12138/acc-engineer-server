@@ -16,6 +16,8 @@ namespace acc_engineer::rpc
         proto_serialize_fail = 1,
         proto_parse_fail = 2,
         method_not_implement = 3,
+        exception_occur = 4,
+
     };
 
     class logic_error_category_impl : public boost::system::error_category

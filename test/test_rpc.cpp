@@ -69,6 +69,7 @@ net::awaitable<void> client(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
+    spdlog::set_level(spdlog::level::debug);
 	net::io_context io_context;
 
 	if (argv[1] == "server"s)
