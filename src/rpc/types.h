@@ -44,6 +44,7 @@ namespace acc_engineer::rpc
 		flag_is_request = 0,
 	};
 
+    using payload_t = std::string;
 }
 
 #endif //ACC_ENGINEER_SERVER_DETAIL_RPC_TYPES_H

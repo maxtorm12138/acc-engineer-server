@@ -1,6 +1,7 @@
-
 #include <string>
+#include <list>
 #include <iostream>
+
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/use_awaitable.hpp>
@@ -19,19 +20,19 @@ using namespace std::string_literals;
 
 using stub_type = rpc::stub<net::ip::tcp::socket>;
 
-net::awaitable<rpc::result<rpc::response_t<proto::Echo>>> echo(const rpc::Cookie& cookie, const proto::Echo::Request& request)
+net::awaitable<rpc::response_t<proto::Echo>> echo(const proto::Echo::Request& request)
 {
 	proto::Echo::Response response;
 	response.set_message(request.message());
-	co_return rpc::result(std::move(response));
+	co_return std::move(response);
 }
 
 std::list<stub_type> stubs;
 
 net::awaitable<void> server(int argc, char* argv[])
 {
-	rpc::methods methods;
-	methods.implement<proto::Echo>(0, echo);
+	rpc::method_group method_group;
+    method_group.implement<proto::Echo>(0, echo);
 
 	auto executor = co_await net::this_coro::executor;
 
@@ -40,7 +41,7 @@ net::awaitable<void> server(int argc, char* argv[])
 	for (;;)
 	{
 		auto socket = co_await acceptor.async_accept(net::use_awaitable);
-		stubs.emplace_back(std::move(socket), methods);
+		stubs.emplace_back(std::move(socket), method_group);
 	}
 }
 

@@ -17,6 +17,7 @@ namespace acc_engineer::rpc
 		concept result_value = requires
 		{
 			!std::derived_from<Value, result_base>;
+            !std::same_as<Value, sys::error_code>;
 		};
 	}
 
@@ -98,6 +99,10 @@ namespace acc_engineer::rpc
 	template <detail::result_value T>
 	T& result<T>::value()
 	{
+        if (!value_.has_value())
+        {
+            throw std::runtime_error("value empty");
+        }
 		return *value_;
 	}
 
@@ -117,5 +122,6 @@ namespace acc_engineer::rpc
 
 		return value_.has_value();
 	}
+
 }
 #endif //!ACC_ENGINEER_SERVER_RPC_RESULT_H

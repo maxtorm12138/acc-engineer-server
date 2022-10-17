@@ -8,11 +8,6 @@ extend google.protobuf.MessageOptions {
 
 message Cookie
 {
-	uint64 system_error_code = 1;
-	uint64 logic_error_code = 2;
-	uint64 trace_id = 3;
-}
-
-message NullResponse
-{
+	uint64 error_code = 1;
+	uint64 trace_id = 2;
 }
