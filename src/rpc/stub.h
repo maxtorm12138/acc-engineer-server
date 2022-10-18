@@ -3,6 +3,7 @@
 
 // std
 #include <bitset>
+#include <numeric>
 
 // log
 #include <spdlog/spdlog.h>
@@ -18,307 +19,227 @@
 #include <boost/noncopyable.hpp>
 
 // module
-#include "await_ec.h"
-#include "error_code.h"
-#include "methods.h"
-#include "types.h"
-
-namespace acc_engineer::rpc::detail
-{
-    class stub_base
-    {
-    public:
-        explicit stub_base(const method_group &method_group) : method_group_(method_group), stub_id_(stub_id_max_++) {}
-        stub_base(const stub_base &) = delete;
-        stub_base &operator=(const stub_base &) = delete;
-        stub_base(stub_base &&) noexcept = delete;
-        stub_base &operator=(stub_base &&) noexcept = delete;
-        ~stub_base() = default;
-
-        std::string pack_payload(std::bitset<64> bit_flags, const rpc::Cookie &cookie, const google::protobuf::Message &message)
-        {
-            uint64_t payload_length{0};
-            uint64_t command_id = message.GetDescriptor()->options().GetExtension(rpc::cmd_id);
-            uint64_t flags = bit_flags.to_ullong();
-
-            payload_t cookie_payload;
-            if (!cookie.SerializeToString(&cookie_payload))
-            {
-                throw sys::system_error(system_error::proto_serialize_fail);
-            }
-            uint64_t cookie_payload_size = cookie_payload.size();
-
-            payload_t message_payload;
-            if (!message.SerializeToString(&message_payload))
-            {
-                throw sys::system_error(system_error::proto_serialize_fail);
-            }
-            uint64_t message_payload_size = message_payload.size();
-
-            const std::array payloads{
-                    net::buffer(&command_id, sizeof(command_id)),
-                    net::buffer(&flags, sizeof(flags)),
-                    net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
-                    net::buffer(&message_payload_size, sizeof(message_payload_size)),
-                    net::buffer(cookie_payload),
-                    net::buffer(message_payload)};
-        }
-
-    protected:
-        uint64_t generate_trace_id()
-        {
-            return trace_id_++;
-        }
-
-        const method_group &method_group_;
-        const uint64_t stub_id_;
-        uint64_t trace_id_{0};
-        static std::atomic<uint64_t> stub_id_max_;
-    };
-
-    std::atomic<uint64_t> stub_base::stub_id_max_{0};
-}// namespace acc_engineer::rpc::detail
+#include "detail/type_requirements.h"
+#include "detail/stub_base.h"
+#include "detail/error_code.h"
+#include "detail/types.h"
+#include "method_group.h"
 
 namespace acc_engineer::rpc
 {
+    namespace sys = boost::system;
+    namespace net = boost::asio;
 
-    template<typename AsyncStream>
-    class stub : public detail::stub_base
+    template<detail::method_channel MethodChannel>
+    class stub final : public detail::stub_base<MethodChannel>
     {
     public:
-        explicit stub(AsyncStream stream, const method_group &method_group = method_group::empty_method_group());
+        explicit stub(MethodChannel channel, const method_group &method_group = method_group::empty_method_group()) :
+                detail::stub_base<MethodChannel>(std::move(channel)),
+                method_group_(method_group)
+        {}
 
-        net::awaitable<void> run();
+        net::awaitable<void> run(net::const_buffer initial = {})
+        {
+            this->status_ = detail::stub_status::running;
+            if (initial.size() > 0)
+            {
+                co_await handle_initial(initial);
+            }
 
-        template<method_message Message>
-        net::awaitable<result<response_t<Message>>> async_call(const request_t<Message> &request);
+            net::co_spawn(co_await net::this_coro::executor, sender_loop(), net::detached);
+            net::co_spawn(co_await net::this_coro::executor, receiver_loop(), net::detached);
+        }
 
-        uint64_t id() const;
+
+        template<detail::method_message Message>
+        net::awaitable<detail::response_t<Message>> async_call(const detail::request_t<Message> &request);
 
     private:
-        enum class stub_status
-        {
-            idle = 1,
-            running = 2,
-            stopping = 3,
-            stopped = 4,
-        };
-
-        using sender_channel_type = net::experimental::channel<void(sys::error_code, const std::vector<net::const_buffer> *)>;
-
-        using reply_channel_type = net::experimental::channel<void(sys::error_code, rpc::Cookie, payload_t)>;
-
-
         net::awaitable<void> sender_loop();
+
+        template<detail::async_stream Stream>
+        net::awaitable<void> do_sender_loop(Stream &stream);
+
+        template<detail::async_datagram Datagram>
+        net::awaitable<void> do_sender_loop(Datagram &datagram);
 
         net::awaitable<void> receiver_loop();
 
-        net::awaitable<void> dispatch_request(uint64_t command_id, payload_t request_cookie_payload, payload_t request_message_payload);
+        net::awaitable<void> handle_initial(net::const_buffer initial);
 
-        net::awaitable<void> dispatch_response(uint64_t command_id, payload_t response_cookie_payload, payload_t response_message_payload);
+        template<detail::async_stream Stream>
+        net::awaitable<void> do_receiver_loop(Stream &stream);
 
-        AsyncStream stream_;
-        sender_channel_type sender_channel_;
-        stub_status status_{stub_status::idle};
-        uint64_t trace_id_current_{0};
-        std::unordered_map<uint64_t, reply_channel_type *> calling_{};
+        template<detail::async_datagram Datagram>
+        net::awaitable<void> do_receiver_loop(Datagram &datagram);
+
+        net::awaitable<void> dispatch_request(uint64_t command_id, rpc::Cookie cookie, std::string request_message_payload);
+
+        net::awaitable<void> dispatch_response(uint64_t command_id, rpc::Cookie cookie, std::string response_message_payload);
+
+        const method_group &method_group_;
     };
 
-    template<typename AsyncStream>
-    stub<AsyncStream>::stub(AsyncStream stream, const method_group &method_group) : stub_base(method_group),
-                                                                                    stream_(std::move(stream)),
-                                                                                    sender_channel_(stream_.get_executor())
+    template<detail::method_channel MethodChannel>
+    net::awaitable<void> stub<MethodChannel>::sender_loop()
     {
+        co_await do_sender_loop(this->method_channel_);
     }
 
-    template<typename AsyncStream>
-    template<method_message Message>
-    net::awaitable<result<response_t<Message>>> stub<AsyncStream>::async_call(const request_t<Message> &request)
-    {
-        try
-        {
-            uint64_t command_id = Message::descriptor()->options().GetExtension(rpc::cmd_id);
-            uint64_t flags = std::bitset<64>{}.set(flag_is_request).to_ullong();
-
-            rpc::Cookie request_cookie;
-            request_cookie.set_trace_id(generate_trace_id());
-            request_cookie.set_error_code(0);
-
-            payload_t request_cookie_payload;
-            if (!request_cookie.SerializeToString(&request_cookie_payload))
-            {
-                co_return system_error::proto_serialize_fail;
-            }
-
-            uint64_t request_cookie_payload_size = request_cookie_payload.size();
-
-            payload_t request_message_payload;
-            if (!request.SerializeToString(&request_message_payload))
-            {
-                co_return system_error::proto_serialize_fail;
-            }
-            uint64_t request_message_payload_size = request_message_payload.size();
-
-            reply_channel_type reply_channel(co_await net::this_coro::executor, 1);
-
-            calling_[request_cookie.trace_id()] = &reply_channel;
-
-            const std::vector<net::const_buffer> request_payloads{
-                    net::buffer(&command_id, sizeof(command_id)),
-                    net::buffer(&flags, sizeof(flags)),
-                    net::buffer(&request_cookie_payload_size, sizeof(request_cookie_payload_size)),
-                    net::buffer(&request_message_payload_size, sizeof(request_message_payload_size)),
-                    net::buffer(request_cookie_payload),
-                    net::buffer(request_message_payload)};
-
-            co_await sender_channel_.async_send({}, &request_payloads, net::use_awaitable);
-
-            auto [response_cookie, response_message_payload] = co_await reply_channel.async_receive(net::use_awaitable);
-
-            calling_.erase(request_cookie.trace_id());
-
-            if (response_cookie.error_code() != 0)
-            {
-                co_return static_cast<system_error>(response_cookie.error_code());
-            }
-
-            response_t<Message> response{};
-            if (!response.ParseFromString(response_message_payload))
-            {
-                co_return system_error::proto_parse_fail;
-            }
-
-            co_return std::move(response);
-        }
-        catch (const sys::system_error &error)
-        {
-            spdlog::error(R"({} async_call system_error, code "{}" what "{}")", stub_id_, error.code().value(), error.what());
-            co_return error.code();
-        }
-        catch (const std::exception &error)
-        {
-            spdlog::error("{} async_call exception, what \"{}\"", stub_id_, error.what());
-            co_return system_error::exception_occur;
-        }
-        catch (...)
-        {
-            spdlog::error("{} async_call unknown exception");
-            co_return system_error::exception_occur;
-        }
-    }
-
-
-    template<typename AsyncStream>
-    net::awaitable<void> stub<AsyncStream>::sender_loop()
+    template<detail::method_channel MethodChannel>
+    template<detail::async_stream Stream>
+    net::awaitable<void> stub<MethodChannel>::do_sender_loop(Stream &stream)
     {
         using namespace std::chrono_literals;
         using namespace boost::asio::experimental::awaitable_operators;
-        try
-        {
-            net::steady_timer sender_timer(co_await net::this_coro::executor);
-            while (status_ == stub_status::running)
-            {
-                const std::vector<net::const_buffer> *buffers_to_send = co_await sender_channel_.async_receive(net::use_awaitable);
+        using detail::stub_status;
 
-                sender_timer.expires_after(500ms);
-                co_await (net::async_write(stream_, *buffers_to_send, net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
-            }
-        }
-        catch (const sys::system_error &error)
+        net::steady_timer sender_timer(co_await net::this_coro::executor);
+        while (this->status_ == stub_status::running)
         {
-            spdlog::error(R"({} sender_loop system_error, code "{}" what "{}")", stub_id_, error.code().value(), error.what());
-        }
-        catch (const std::exception &error)
-        {
-            spdlog::error("{}, sender_loop exception, what \"{}\"", stub_id_, error.what());
-        }
-        catch (...)
-        {
-            spdlog::error("{} sender_loop unknown exception ", stub_id_);
-        }
+            const std::string *buffers_to_send = co_await this->sender_channel_.async_receive(net::use_awaitable);
 
-        stream_.close();
-        sender_channel_.close();
+            sender_timer.expires_after(500ms);
+            co_await (net::async_write(stream, net::buffer(*buffers_to_send), net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
+        }
     }
 
-    template<typename AsyncStream>
-    net::awaitable<void> stub<AsyncStream>::receiver_loop()
+    template<detail::method_channel MethodChannel>
+    template<detail::async_datagram Datagram>
+    net::awaitable<void> stub<MethodChannel>::do_sender_loop(Datagram &datagram)
     {
-        try
+        using namespace std::chrono_literals;
+        using namespace boost::asio::experimental::awaitable_operators;
+
+        using namespace std::chrono_literals;
+        using namespace boost::asio::experimental::awaitable_operators;
+        using detail::stub_status;
+
+        net::steady_timer sender_timer(co_await net::this_coro::executor);
+        while (this->status_ == stub_status::running)
         {
-            while (status_ == stub_status::running)
-            {
-                uint64_t command_id = 0;
-                uint64_t flags = 0;
-                uint64_t cookie_payload_size = 0;
-                uint64_t message_payload_size = 0;
+            const std::vector<net::const_buffer> *buffers_to_send = co_await this->sender_channel_.async_receive(net::use_awaitable);
 
-                std::array header_payload{
-                        net::buffer(&command_id, sizeof(command_id)),
-                        net::buffer(&flags, sizeof(flags)),
-                        net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
-                        net::buffer(&message_payload_size, sizeof(message_payload_size)),
-                };
-
-
-                co_await net::async_read(stream_, header_payload, net::use_awaitable);
-                payload_t cookie_payload(cookie_payload_size, '\0');
-                payload_t message_payload(message_payload_size, '\0');
-
-                std::array variable_data_payload{
-                        net::buffer(cookie_payload),
-                        net::buffer(message_payload)};
-
-                co_await net::async_read(stream_, variable_data_payload, net::use_awaitable);
-
-                if (std::bitset<64>(flags).test(flag_is_request))
-                {
-                    co_await dispatch_request(command_id, std::move(cookie_payload), std::move(message_payload));
-                }
-                else
-                {
-                    co_await dispatch_response(command_id, std::move(cookie_payload), message_payload);
-                }
-            }
+            sender_timer.expires_after(500ms);
+            co_await (datagram.async_send(*buffers_to_send, net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
         }
-        catch (const sys::system_error &error)
-        {
-            spdlog::error(R"({} receiver_loop system_error, code "{}" what "{}")", stub_id_, error.code().value(), error.what());
-        }
-        catch (const std::exception &error)
-        {
-            spdlog::error("{} receiver_loop exception \"{}\"", stub_id_, error.what());
-        }
-        catch (...)
-        {
-            spdlog::error("{} receiver_loop unknown exception ", stub_id_);
-        }
-
-        stream_.close();
-        sender_channel_.close();
     }
 
-    template<typename AsyncStream>
-    net::awaitable<void> stub<AsyncStream>::dispatch_request(uint64_t command_id, payload_t request_cookie_payload, payload_t request_message_payload)
+    template<detail::method_channel MethodChannel>
+    net::awaitable<void> stub<MethodChannel>::receiver_loop()
     {
-        auto run_method = [this, command_id, request_cookie_payload = std::move(request_cookie_payload), request_message_payload = std::move(request_message_payload)]() mutable -> net::awaitable<void> {
-            rpc::Cookie cookie{};
-            if (!cookie.ParseFromString(request_cookie_payload))
+        co_await do_receiver_loop(this->method_channel_);
+    }
+
+    template<detail::method_channel MethodChannel>
+    net::awaitable<void> stub<MethodChannel>::handle_initial(net::const_buffer initial)
+    {
+        uint64_t payload_size = 0;
+        std::vector<uint8_t> payload(1500);
+
+        std::array segment_payload = {
+                net::buffer(net::buffer(&payload_size, sizeof(payload_size))),
+                net::buffer(payload)
+        };
+
+        net::buffer_copy(segment_payload, initial);
+
+        uint64_t command_id;
+        std::bitset<64> flags;
+        rpc::Cookie cookie;
+        auto message_payload = this->unpack(net::buffer(payload, payload_size), command_id, flags, cookie);
+
+        if (std::bitset<64>(flags).test(detail::flag_is_request))
+        {
+            co_await dispatch_request(command_id, std::move(cookie), std::move(message_payload));
+        }
+    }
+
+    template<detail::method_channel MethodChannel>
+    template<detail::async_stream Stream>
+    net::awaitable<void> stub<MethodChannel>::do_receiver_loop(Stream &stream)
+    {
+        using namespace std::chrono_literals;
+        using namespace boost::asio::experimental::awaitable_operators;
+        using detail::stub_status;
+
+        uint64_t payload_size = 0;
+        std::vector<uint8_t> payload(1500);
+
+        while (this->status_ == stub_status::running)
+        {
+            co_await net::async_read(stream, net::buffer(&payload_size, sizeof(payload_size)), net::use_awaitable);
+            size_t size_read = co_await net::async_read(stream, net::buffer(payload, payload_size), net::use_awaitable);
+            // TODO size_read == payload_size
+
+            uint64_t command_id;
+            std::bitset<64> flags;
+            rpc::Cookie cookie;
+            auto message_payload = this->unpack(net::buffer(payload, payload_size), command_id, flags, cookie);
+
+            if (std::bitset<64>(flags).test(detail::flag_is_request))
             {
-                // TODO fatal error
-                spdlog::error("{} dispatch_request parse request cookie error, cmd_id: {}", stub_id_, command_id);
-                co_return;
+                co_await dispatch_request(command_id, std::move(cookie), std::move(message_payload));
             }
+            else
+            {
+                co_await dispatch_response(command_id, std::move(cookie), message_payload);
+            }
+        }
+    }
 
-            spdlog::debug("{} dispatch_request, cmd_id: {} cookie: \"{}\"", stub_id_, command_id, cookie.Utf8DebugString());
-            result<payload_t> result = co_await std::invoke(method_group_, command_id, std::move(request_message_payload));
+    template<detail::method_channel MethodChannel>
+    template<detail::async_datagram Datagram>
+    net::awaitable<void> stub<MethodChannel>::do_receiver_loop(Datagram &datagram)
+    {
+        using namespace std::chrono_literals;
+        using namespace boost::asio::experimental::awaitable_operators;
+        using detail::stub_status;
 
-            uint64_t response_message_payload_size = 0;
+        uint64_t payload_size = 0;
+        std::vector<uint8_t> payload(1500);
+
+        while (this->status_ == stub_status::running)
+        {
+            std::array segment_payload = {
+                    net::buffer(net::buffer(&payload_size, sizeof(payload_size))),
+                    net::buffer(payload)
+            };
+
+            size_t size_read = co_await datagram.async_receive(segment_payload, net::use_awaitable);
+            // TODO size_read == payload_size
+            uint64_t command_id;
+            std::bitset<64> flags;
+            rpc::Cookie cookie;
+            auto message_payload = this->unpack(net::buffer(payload, payload_size), command_id, flags, cookie);
+
+            if (std::bitset<64>(flags).test(detail::flag_is_request))
+            {
+                co_await dispatch_request(command_id, std::move(cookie), std::move(message_payload));
+            }
+            else
+            {
+                co_await dispatch_response(command_id, std::move(cookie), message_payload);
+            }
+        }
+    }
+
+    template<detail::method_channel MethodChannel>
+    net::awaitable<void> stub<MethodChannel>::dispatch_request(uint64_t command_id, rpc::Cookie cookie, std::string request_message_payload)
+    {
+        auto run_method = [this, command_id, cookie = std::move(cookie), request_message_payload = std::move(request_message_payload)]() mutable -> net::awaitable<void>
+        {
+            spdlog::debug("{} dispatch_request, cmd_id: {} cookie: \"{}\"", this->id(), command_id, cookie.Utf8DebugString());
+
+            result<std::string> result = co_await std::invoke(method_group_, command_id, std::move(request_message_payload));
+
+            std::string response_message_payload;
             if (result.error())
             {
                 spdlog::error(
                         "{} dispatch_request implement error, cmd_id: {} code: {} what: \"{}\"",
-                        stub_id_,
+                        this->id(),
                         command_id,
                         result.error().value(),
                         result.error().message());
@@ -326,70 +247,73 @@ namespace acc_engineer::rpc
             }
             else
             {
-                response_message_payload_size = result.value().size();
+                response_message_payload = std::move(result.value());
             }
 
-            uint64_t flags = std::bitset<64>{}.set(flag_is_request, false).to_ullong();
+            auto flags = std::bitset<64>{}.set(detail::flag_is_request, false).to_ullong();
+            auto payloads = this->pack(command_id, flags, cookie, response_message_payload);
 
-            payload_t response_cookie_payload;
-            if (!cookie.SerializeToString(&response_cookie_payload))
-            {
-                // TODO fatal error
-                spdlog::error("{} dispatch_request serialize response cookie error, cmd_id: {}", stub_id_, command_id);
-                co_return;
-            }
-            uint64_t response_cookie_payload_size = response_cookie_payload.size();
-
-
-            const std::vector<net::const_buffer> response_payloads{
-                    net::buffer(&command_id, sizeof(command_id)),
-                    net::buffer(&flags, sizeof(flags)),
-                    net::buffer(&response_cookie_payload_size, sizeof(response_cookie_payload_size)),
-                    net::buffer(&response_message_payload_size, sizeof(response_message_payload_size)),
-                    net::buffer(response_cookie_payload),
-                    net::buffer(result.value())};
-
-            co_await sender_channel_.async_send({}, &response_payloads, net::use_awaitable);
+            co_await this->sender_channel_.async_send({}, &payloads, net::use_awaitable);
         };
 
         net::co_spawn(co_await net::this_coro::executor, run_method, net::detached);
+
     }
 
-    template<typename AsyncStream>
-    net::awaitable<void> stub<AsyncStream>::dispatch_response(uint64_t command_id, payload_t response_cookie_payload, payload_t response_message_payload)
+    template<detail::method_channel MethodChannel>
+    net::awaitable<void> stub<MethodChannel>::dispatch_response(uint64_t command_id, rpc::Cookie cookie, std::string response_message_payload)
     {
-        rpc::Cookie cookie{};
-        if (!cookie.ParseFromString(response_cookie_payload))
-        {
-            // TODO fatal error
-            spdlog::error("{} dispatch_response parse response cookie error, cmd_id: {}", stub_id_, command_id);
-            co_return;
-        }
-
         uint64_t trace_id = cookie.trace_id();
 
-        if (!calling_.contains(trace_id))
+        if (!this->calling_.contains(trace_id))
         {
-            // TODO message outdated;
-            spdlog::info("{} dispatch_response message out of date, cmd_id: {} cookie: \"{}\"", stub_id_, command_id, cookie.ShortDebugString());
+            spdlog::info("{} dispatch_response message out of date, cmd_id: {} cookie: \"{}\"", this->id(), command_id, cookie.ShortDebugString());
             co_return;
         }
-        co_await calling_[trace_id]->async_send({}, std::move(cookie), std::move(response_message_payload), net::use_awaitable);
+        co_await this->calling_[trace_id]->async_send({}, std::move(cookie), std::move(response_message_payload), net::use_awaitable);
     }
 
-    template<typename AsyncStream>
-    uint64_t stub<AsyncStream>::id() const
-    {
-        return stub_id_;
-    }
 
-    template<typename AsyncStream>
-    net::awaitable<void> stub<AsyncStream>::run()
+    template<detail::method_channel MethodChannel>
+    template<detail::method_message Message>
+    net::awaitable<detail::response_t<Message>> stub<MethodChannel>::async_call(const detail::request_t<Message> &request)
     {
-        status_ = stub_status::running;
+        uint64_t command_id = Message::descriptor()->options().GetExtension(rpc::cmd_id);
+        auto flags = std::bitset<64>{}.set(detail::flag_is_request, true);
 
-        net::co_spawn(co_await net::this_coro::executor, sender_loop(), net::detached);
-        net::co_spawn(co_await net::this_coro::executor, receiver_loop(), net::detached);
+        rpc::Cookie request_cookie;
+        request_cookie.set_trace_id(this->generate_trace_id());
+        request_cookie.set_error_code(0);
+
+        std::string request_message_payload;
+        if (!request.SerializeToString(&request_message_payload))
+        {
+            throw sys::system_error(detail::system_error::proto_serialize_fail);
+        }
+
+        auto request_payload = this->pack(command_id, flags, request_cookie, request_message_payload);
+
+        detail::reply_channel_t reply_channel(co_await net::this_coro::executor, 1);
+        this->calling_[request_cookie.trace_id()] = &reply_channel;
+
+        co_await this->sender_channel_.async_send({}, &request_payload, net::use_awaitable);
+
+        auto[response_cookie, response_message_payload] = co_await reply_channel.async_receive(net::use_awaitable);
+
+        this->calling_.erase(request_cookie.trace_id());
+        if (response_cookie.error_code() != 0)
+        {
+            throw sys::system_error(static_cast<detail::system_error>(response_cookie.error_code()));
+        }
+
+        detail::response_t<Message> response{};
+        if (!response.ParseFromString(response_message_payload))
+        {
+            throw sys::system_error(detail::system_error::proto_parse_fail);
+        }
+
+        co_return std::move(response);
+
     }
 }// namespace acc_engineer::rpc
 

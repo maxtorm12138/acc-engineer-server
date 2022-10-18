@@ -49,11 +49,18 @@ set(ACC_ENGINEER_PROTO_INCLUDE_DIR
 
 set(ACC_ENGINEER_SERVER_RPC_SRCS
         src/rpc/detail/method_type_erasure.h
-        src/rpc/methods.h
+        src/rpc/detail/stub_base.h
+        src/rpc/detail/type_requirements.h
+        src/rpc/detail/await_ec.h
+        src/rpc/detail/method.h
+        src/rpc/detail/types.h
+        src/rpc/detail/error_code.h
+        src/rpc/method_group.h
         src/rpc/result.h
         src/rpc/stub.h
         src/rpc/error_code.h
         src/rpc/await_ec.h
+        src/rpc/types.h
         ${RPC_PROTO_FILES})
 
 add_library(acc-engineer-server-rpc ${ACC_ENGINEER_SERVER_RPC_SRCS})

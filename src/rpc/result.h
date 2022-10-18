@@ -1,37 +1,25 @@
 #ifndef ACC_ENGINEER_SERVER_RPC_RESULT_H
 #define ACC_ENGINEER_SERVER_RPC_RESULT_H
+
 #include <boost/system/error_code.hpp>
+
+#include "detail/type_requirements.h"
 
 namespace acc_engineer::rpc
 {
-	namespace sys = boost::system;
+    namespace sys = boost::system;
 
-	namespace detail
-	{
-		class result_base
-		{
-		protected:
-		};
+    template<detail::result_value T>
+    class result : public detail::result_class
+    {
+    public:
+        result(const sys::error_code &error);
 
-		template<typename Value>
-		concept result_value = requires
-		{
-			!std::derived_from<Value, result_base>;
-            !std::same_as<Value, sys::error_code>;
-		};
-	}
+        result(T &&value);
 
-	template<detail::result_value T>
-	class result : public detail::result_base
-	{
-	public:
-		result(const sys::error_code& error);
+        result(const T &value);
 
-		result(T&& value);
-
-		result(const T& value);
-
-		result(const result& other);
+        result(const result &other);
 
 		result(result&& other) noexcept;
 
