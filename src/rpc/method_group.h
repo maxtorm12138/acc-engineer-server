@@ -9,11 +9,11 @@
 
 // boost
 #include <boost/asio/awaitable.hpp>
+#include <boost/noncopyable.hpp>
 
 #include "detail/method_type_erasure.h"
 #include "detail/method.h"
 #include "detail/type_requirements.h"
-#include "detail/types.h"
 
 namespace acc_engineer::rpc
 {

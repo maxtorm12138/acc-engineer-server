@@ -50,6 +50,7 @@ set(ACC_ENGINEER_PROTO_INCLUDE_DIR
 set(ACC_ENGINEER_SERVER_RPC_SRCS
         src/rpc/detail/method_type_erasure.h
         src/rpc/detail/stub_base.h
+        src/rpc/detail/stub_base.cpp
         src/rpc/detail/type_requirements.h
         src/rpc/detail/await_ec.h
         src/rpc/detail/method.h

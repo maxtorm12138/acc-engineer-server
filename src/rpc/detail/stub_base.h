@@ -1,12 +1,20 @@
 #ifndef ACC_ENGINEER_SERVER_RPC_DETAIL_STUB_BASE_H
 #define ACC_ENGINEER_SERVER_RPC_DETAIL_STUB_BASE_H
 
-// boost
-#include <boost/asio/read.hpp>
+// std
+#include <bitset>
 
-#include "../method_group.h"
-#include "error_code.h"
+// boost
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+// module
 #include "type_requirements.h"
+#include "types.h"
+#include "../method_group.h"
+
+// protocol
+#include "proto/rpc.pb.h"
 
 
 namespace acc_engineer::rpc::detail
@@ -19,27 +27,33 @@ namespace acc_engineer::rpc::detail
         stopped = 4,
     };
 
-    template<method_channel MethodChannel>
     class stub_base
     {
     public:
-        explicit stub_base(MethodChannel channel);
+        stub_base(const method_group &method_group);
 
-        uint64_t id() const;
+        [[nodiscard]] uint64_t id() const;
 
-        stub_status status() const;
+        [[nodiscard]] stub_status status() const;
+
 
     protected:
 
-        std::string pack(uint64_t command_id, std::bitset<64> bit_flags, const rpc::Cookie &cookie, const std::string &message_payload);
+        [[nodiscard]] std::string pack(uint64_t command_id, std::bitset<64> bit_flags, const rpc::Cookie &cookie, const std::string &message_payload) const;
 
-        std::string unpack(net::const_buffer payload, uint64_t &cmd_id, std::bitset<64> &flag, rpc::Cookie &cookie);
+        [[nodiscard]] std::string unpack(net::const_buffer payload, uint64_t &command_id, std::bitset<64> &bit_flag, rpc::Cookie &cookie) const;
 
-        uint64_t generate_trace_id();;
+        static uint64_t generate_trace_id();
 
-        MethodChannel method_channel_;
-        const uint64_t stub_id_;
-        sender_channel_t sender_channel_;
+        net::awaitable<void> dispatch_request(sender_channel_t &sender_channel, uint64_t command_id, rpc::Cookie cookie, std::string request_message_payload) const;
+
+        net::awaitable<void> dispatch_response(uint64_t command_id, rpc::Cookie cookie, std::string response_message_payload);
+
+        template<method_message Message>
+        net::awaitable<response_t<Message>> do_async_call(sender_channel_t &sender_channel, const detail::request_t<Message> &request);
+
+        const method_group &method_group_;
+        const uint64_t stub_id_ { stub_id_max_++ };
         stub_status status_{stub_status::idle};
         std::unordered_map<uint64_t, reply_channel_t *> calling_{};
 
@@ -48,115 +62,44 @@ namespace acc_engineer::rpc::detail
         static std::atomic<uint64_t> trace_id_max_;
     };
 
-
-    template<method_channel MethodChannel>
-    std::atomic<uint64_t> stub_base<MethodChannel>::stub_id_max_;
-
-    template<method_channel MethodChannel>
-    std::atomic<uint64_t> stub_base<MethodChannel>::trace_id_max_;
-
-    template<method_channel MethodChannel>
-    stub_base<MethodChannel>::stub_base(MethodChannel method_channel) :
-            method_channel_(std::move(method_channel)),
-            stub_id_(stub_id_max_++),
-            sender_channel_(method_channel.get_executor())
-    {}
-
-    template<method_channel MethodChannel>
-    uint64_t stub_base<MethodChannel>::id() const
+    template<method_message Message>
+    net::awaitable<response_t<Message>> stub_base::do_async_call(sender_channel_t &sender_channel, const detail::request_t<Message> &request)
     {
-        return stub_id_;
-    }
+        const uint64_t command_id = Message::descriptor()->options().GetExtension(rpc::cmd_id);
+        const auto flags = std::bitset<64>{}.set(flag_is_request, true);
 
-    template<method_channel MethodChannel>
-    stub_status stub_base<MethodChannel>::status() const
-    {
-        return status_;
-    }
+        rpc::Cookie request_cookie;
+        request_cookie.set_trace_id(this->generate_trace_id());
+        request_cookie.set_error_code(0);
 
-    template<method_channel MethodChannel>
-    std::string stub_base<MethodChannel>::pack(uint64_t command_id, std::bitset<64> bit_flags, const rpc::Cookie &cookie, const std::string &message_payload)
-    {
-        uint64_t flags = bit_flags.to_ullong();
-        std::string cookie_payload;
-        if (!cookie.SerializeToString(&cookie_payload))
+        std::string request_message_payload;
+        if (!request.SerializeToString(&request_message_payload))
         {
             throw sys::system_error(system_error::proto_serialize_fail);
         }
 
-        uint64_t payload_length = 0;
-        uint64_t cookie_payload_size = cookie_payload.size();
-        uint64_t message_payload_size = message_payload.size();
+        const auto request_payload = this->pack(command_id, flags, request_cookie, request_message_payload);
 
-        const std::array<net::const_buffer, 7> payloads
-                {
-                        net::buffer(&payload_length, sizeof(payload_length)),
-                        net::buffer(&command_id, sizeof(command_id)),
-                        net::buffer(&flags, sizeof(flags)),
-                        net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
-                        net::buffer(&message_payload_size, sizeof(message_payload_size)),
-                        net::buffer(cookie_payload),
-                        net::buffer(message_payload)
-                };
+        reply_channel_t reply_channel(co_await net::this_coro::executor, 1);
+        this->calling_[request_cookie.trace_id()] = &reply_channel;
 
-        payload_length = std::accumulate(
-                payloads.begin(), payloads.end(), 0ULL, [](auto current, auto &buffer)
-                { return current + buffer.size(); }) - sizeof(payload_length);
+        co_await sender_channel.async_send({}, &request_payload, net::use_awaitable);
 
-        std::string result_payloads(payload_length + sizeof(payload_length), '\0');
-        net::buffer_copy(net::buffer(result_payloads), payloads, result_payloads.size());
+        auto[response_cookie, response_message_payload] = co_await reply_channel.async_receive(net::use_awaitable);
 
-        return result_payloads;
-    }
-
-    template<method_channel MethodChannel>
-    std::string stub_base<MethodChannel>::unpack(net::const_buffer payload, uint64_t &command_id, std::bitset<64> &bit_flags, rpc::Cookie &cookie)
-    {
-        if (payload.size() > MAX_PAYLOAD_SIZE)
+        this->calling_.erase(request_cookie.trace_id());
+        if (response_cookie.error_code() != 0)
         {
-            throw sys::system_error(system_error::data_corrupted);
+            throw sys::system_error(static_cast<system_error>(response_cookie.error_code()));
         }
 
-        uint64_t cookie_payload_size = 0;
-        uint64_t message_payload_size = 0;
-        uint64_t flags;
-        const std::array header_payload
-                {
-                        net::buffer(&command_id, sizeof(command_id)),
-                        net::buffer(&flags, sizeof(flags)),
-                        net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
-                        net::buffer(&message_payload_size, sizeof(message_payload_size)),
-                };
-
-
-        net::buffer_copy(header_payload, payload, sizeof(uint64_t) * header_payload.size());
-
-        bit_flags = std::bitset<64>(flags);
-
-        payload += sizeof(uint64_t) * header_payload.size();
-
-        if (!cookie.ParseFromArray(payload.data(), static_cast<int>(cookie_payload_size)))
+        response_t<Message> response{};
+        if (!response.ParseFromString(response_message_payload))
         {
-            throw sys::system_error(system_error::data_corrupted);
+            throw sys::system_error(system_error::proto_parse_fail);
         }
 
-        payload += cookie_payload_size;
-
-        std::string message_payload(message_payload_size, '\0');
-        net::buffer_copy(net::buffer(message_payload), payload, message_payload_size);
-        payload += message_payload_size;
-
-        if (payload.size() != 0)
-        {
-            throw sys::system_error(system_error::data_corrupted);
-        }
-        return message_payload;
-    }
-
-    template<method_channel MethodChannel>
-    uint64_t stub_base<MethodChannel>::generate_trace_id()
-    {
-        return trace_id_max_++;
+        co_return std::move(response);
     }
 }
 

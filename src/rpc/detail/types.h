@@ -1,9 +1,18 @@
 #ifndef ACC_ENGINEER_SERVER_RPC_DETAIL_TYPES_H
 #define ACC_ENGINEER_SERVER_RPC_DETAIL_TYPES_H
 
+// std
+#include <string>
+
+// boost
+#include <boost/system/error_code.hpp>
+#include <boost/asio/experimental/channel.hpp>
+
+// module
 #include "type_requirements.h"
 
-#include <boost/asio/experimental/channel.hpp>
+// protocol
+#include "proto/rpc.pb.h"
 
 namespace acc_engineer::rpc::detail
 {
