@@ -8,6 +8,7 @@
 #include "proto/rpc.pb.h"
 
 namespace acc_engineer::rpc::detail {
+
 struct method_type_erasure
 {
     method_type_erasure() = default;
@@ -18,5 +19,6 @@ struct method_type_erasure
 
     virtual ~method_type_erasure() = default;
 };
+
 } // namespace acc_engineer::rpc::detail
 #endif // ACC_ENGINEER_SERVER_DETAIL_METHOD_BASE_H

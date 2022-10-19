@@ -17,6 +17,7 @@ enum class system_error
     operation_timeout = 6,
 };
 
+// ReSharper disable once CppPolymorphicClassWithNonVirtualPublicDestructor
 class system_error_category_impl : public sys::error_category
 {
 public:
@@ -64,6 +65,7 @@ inline boost::system::error_code make_error_code(system_error error)
 {
     return {static_cast<int>(error), system_error_category()};
 }
+
 } // namespace acc_engineer::rpc::detail
 
 template<>

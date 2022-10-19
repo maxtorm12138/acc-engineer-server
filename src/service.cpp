@@ -4,6 +4,7 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include "proto/service.pb.h"
 
@@ -15,11 +16,10 @@ service::service(config cfg)
 net::awaitable<void> service::run()
 {
     using namespace std::placeholders;
+    using namespace net::experimental::awaitable_operators;
     running_ = true;
     method_group_.implement<Echo>(std::bind(&service::echo, this, _1));
-
-    co_spawn(co_await net::this_coro::executor, udp_run(), net::detached);
-    co_spawn(co_await net::this_coro::executor, tcp_run(), net::detached);
+    co_await (tcp_run() && udp_run());
 }
 
 net::awaitable<void> service::tcp_run()
@@ -34,12 +34,14 @@ net::awaitable<void> service::tcp_run()
 
         auto tcp_stub = std::make_shared<tcp_stub_t>(std::move(socket), method_group_);
         id_tcp_stub_.emplace(tcp_stub->id(), tcp_stub);
-        co_await tcp_stub->run();
+        net::co_spawn(executor, tcp_stub->run(), net::detached);
     }
 }
 
 net::awaitable<void> service::udp_run()
 {
+    auto executor = co_await net::this_coro::executor;
+
     net::ip::udp::endpoint bind_endpoint{config_.address(), config_.port()};
     net::ip::udp::socket acceptor(co_await net::this_coro::executor);
     acceptor.open(bind_endpoint.protocol());
@@ -61,7 +63,7 @@ net::awaitable<void> service::udp_run()
 
         auto udp_stub = std::make_shared<udp_stub_t>(std::move(socket), method_group_);
         id_udp_stub_.emplace(udp_stub->id(), udp_stub);
-        co_await udp_stub->run(net::buffer(initial, size_read));
+        net::co_spawn(executor, udp_stub->run(), net::detached);
     }
 }
 

@@ -2,10 +2,7 @@
 #define ACC_ENGINEER_SERVER_RPC_DETAIL_DATAGRAM_STUB_H
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
-#include <boost/asio/read.hpp>
 #include <boost/asio/steady_timer.hpp>
-#include <boost/asio/write.hpp>
 
 #include "stub_base.h"
 
@@ -41,14 +38,37 @@ datagram_stub<MethodChannel>::datagram_stub(MethodChannel method_channel, const 
 template<async_datagram MethodChannel>
 net::awaitable<void> datagram_stub<MethodChannel>::run(net::const_buffer initial)
 {
-    status_ = stub_status::running;
+    using net::experimental::make_parallel_group;
+
     if (initial.size() > 0)
     {
         co_await dispatch(sender_channel_, initial);
     }
 
-    net::co_spawn(co_await net::this_coro::executor, sender_loop(), net::detached);
-    net::co_spawn(co_await net::this_coro::executor, receiver_loop(), net::detached);
+    auto executor = co_await net::this_coro::executor;
+
+    auto deferred_sender_loop = net::co_spawn(executor, sender_loop(), net::deferred);
+    auto deferred_receiver_loop = net::co_spawn(executor, receiver_loop(), net::deferred);
+
+    status_ = stub_status::running;
+    auto parallel_group = make_parallel_group(std::move(deferred_receiver_loop), std::move(deferred_sender_loop));
+    auto &&[order, ex_receiver, ex_sender] = co_await parallel_group.async_wait(net::experimental::wait_for_one(), net::deferred);
+    spdlog::info("{} run stopped", id());
+
+    if (order[0] == 0)
+    {
+        if (ex_receiver != nullptr)
+        {
+            std::rethrow_exception(ex_receiver);
+        }
+    }
+    else
+    {
+        if (ex_sender != nullptr)
+        {
+            std::rethrow_exception(ex_sender);
+        }
+    }
 }
 
 template<async_datagram MethodChannel>
@@ -63,8 +83,7 @@ net::awaitable<void> datagram_stub<MethodChannel>::sender_loop()
     {
         std::string buffers_to_send = co_await this->sender_channel_.async_receive(net::use_awaitable);
         sender_timer.expires_after(500ms);
-        co_await (
-            method_channel_.async_send(net::buffer(buffers_to_send), net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
+        co_await (method_channel_.async_send(net::buffer(buffers_to_send), net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
         spdlog::debug("{} sender_loop send size {}", id(), buffers_to_send.size());
     }
 }

@@ -15,6 +15,13 @@ net::awaitable<void> co_main(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+    spdlog::set_level(spdlog::level::debug);
+
+    std::set_terminate([]() {
+        spdlog::error("unhandled exception occurred");
+        std::abort();
+    });
+
     net::io_context io_context;
 
     co_spawn(io_context, co_main(argc, argv), [](const std::exception_ptr &exception_ptr) {

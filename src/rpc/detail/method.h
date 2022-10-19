@@ -34,8 +34,7 @@ requires method_implement<Message, Implement> method<Message, Implement>::method
 {}
 
 template<method_message Message, typename Implement>
-requires method_implement<Message, Implement> net::awaitable<std::string> method<Message, Implement>::operator()(
-    std::string request_message_payload)
+requires method_implement<Message, Implement> net::awaitable<std::string> method<Message, Implement>::operator()(std::string request_message_payload)
 {
     request_t<Message> request{};
     if (!request.ParseFromString(request_message_payload.data()))
@@ -45,8 +44,7 @@ requires method_implement<Message, Implement> net::awaitable<std::string> method
     }
 
     response_t<Message> response = co_await std::invoke(implement_, std::cref(request));
-    spdlog::debug(R"(method invoke method: {} request: [{}] response: [{}])", Message::descriptor()->full_name(),
-        request.ShortDebugString(), response.ShortDebugString());
+    spdlog::debug(R"(method invoke method: {} request: [{}] response: [{}])", Message::descriptor()->full_name(), request.ShortDebugString(), response.ShortDebugString());
 
     std::string response_message_payload;
     if (!response.SerializeToString(&response_message_payload))
