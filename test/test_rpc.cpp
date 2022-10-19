@@ -49,6 +49,7 @@ net::awaitable<void> server_tcp(int argc, char *argv[])
     for (;;)
     {
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
+        spdlog::info("server_tcp new connection: {}:{}", socket.remote_endpoint().address().to_string(),socket.remote_endpoint().port());
         auto &stub = tcp_stubs.emplace_back(std::move(socket), method_group);
         co_await stub.run();
     }
@@ -64,8 +65,11 @@ net::awaitable<void> server_udp(int argc, char *argv[])
 
         auto executor = co_await net::this_coro::executor;
 
-        net::ip::udp::socket acceptor(executor, {net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))});
+        net::ip::udp::endpoint ep{net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))};
+        net::ip::udp::socket acceptor(executor);
+        acceptor.open(ep.protocol());
         acceptor.set_option(net::socket_base::reuse_address(true));
+        acceptor.bind(ep);
 
         std::array<uint8_t, 1500> buffer{};
         for (;;)
@@ -74,11 +78,12 @@ net::awaitable<void> server_udp(int argc, char *argv[])
             auto size_read = co_await acceptor.async_receive_from(net::buffer(buffer), remote, net::use_awaitable);
 
             net::ip::udp::socket socket(executor);
-            socket.open(net::ip::udp::v4());
+            socket.open(ep.protocol());
             socket.set_option(net::socket_base::reuse_address(true));
-            socket.bind({net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))});
+            socket.bind(ep);
             socket.connect(remote);
 
+            spdlog::info("server_udp new connection: {}:{}", socket.remote_endpoint().address().to_string(),socket.remote_endpoint().port());
             auto &stub = udp_stubs.emplace_back(std::move(socket), method_group);
             co_await stub.run(net::buffer(buffer, size_read));
         }
@@ -110,7 +115,7 @@ net::awaitable<void> client_tcp(int argc, char *argv[])
             proto::Echo::Request request;
             std::getline(std::cin, *request.mutable_message());
 
-            auto result = co_await stub.async_call<acc_engineer::Echo>(request, 500ms);
+            auto result = co_await stub.async_call<acc_engineer::Echo>(request);
             std::cerr << "Response: " << result.ShortDebugString() << std::endl;
         }
         catch (boost::system::system_error &e)
@@ -144,7 +149,7 @@ net::awaitable<void> client_udp(int argc, char *argv[])
             proto::Echo::Request request;
             std::getline(std::cin, *request.mutable_message());
 
-            auto result = co_await stub.async_call<acc_engineer::Echo>(request, 500ms);
+            auto result = co_await stub.async_call<acc_engineer::Echo>(request);
             std::cerr << "Response: " << result.ShortDebugString() << std::endl;
         }
         catch (boost::system::system_error &e)

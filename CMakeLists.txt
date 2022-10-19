@@ -91,6 +91,7 @@ add_executable(acc-engineer-server ${ACC_ENGINEER_SERVER_SRCS} ${PROTO_SRCS} ${P
 target_link_libraries(acc-engineer-server acc-engineer-server-rpc)
 target_link_libraries(acc-engineer-server Boost::boost Boost::program_options)
 target_link_libraries(acc-engineer-server protobuf::libprotobuf)
+target_link_libraries(acc-engineer-server spdlog::spdlog)
 
 target_include_directories(acc-engineer-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 

@@ -3,10 +3,9 @@
 
 #include "detail/error_code.h"
 
-namespace acc_engineer::rpc
-{
-    using detail::system_error;
-    using detail::make_error_code;
+namespace acc_engineer::rpc {
+using detail::system_error;
+using detail::make_error_code;
 }
 
 #endif
