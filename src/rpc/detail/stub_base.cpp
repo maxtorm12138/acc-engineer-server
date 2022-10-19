@@ -46,14 +46,12 @@ std::string stub_base::pack(uint64_t command_id, std::bitset<64> bit_flags, cons
     uint64_t cookie_payload_size = cookie_payload.size();
     uint64_t message_payload_size = message_payload.size();
 
-    const std::array<net::const_buffer, 7> payloads{net::buffer(&payload_length, sizeof(payload_length)),
-        net::buffer(&command_id, sizeof(command_id)), net::buffer(&flags, sizeof(flags)),
-        net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)), net::buffer(&message_payload_size, sizeof(message_payload_size)),
-        net::buffer(cookie_payload), net::buffer(message_payload)};
+    const std::array<net::const_buffer, 7> payloads{net::buffer(&payload_length, sizeof(payload_length)), net::buffer(&command_id, sizeof(command_id)),
+        net::buffer(&flags, sizeof(flags)), net::buffer(&cookie_payload_size, sizeof(cookie_payload_size)),
+        net::buffer(&message_payload_size, sizeof(message_payload_size)), net::buffer(cookie_payload), net::buffer(message_payload)};
 
-    payload_length = std::accumulate(payloads.begin(), payloads.end(), 0ULL, [](auto current, auto &buffer) {
-        return current + buffer.size();
-    }) - sizeof(payload_length);
+    payload_length =
+        std::accumulate(payloads.begin(), payloads.end(), 0ULL, [](auto current, auto &buffer) { return current + buffer.size(); }) - sizeof(payload_length);
 
     std::string result_payloads(payload_length + sizeof(payload_length), '\0');
     buffer_copy(net::buffer(result_payloads), payloads, result_payloads.size());
@@ -71,7 +69,6 @@ std::tuple<uint64_t, std::bitset<64>, Cookie, std::string> stub_base::unpack(net
     uint64_t payload_size = 0;
     uint64_t command_id = 0;
     uint64_t flags = 0;
-    std::bitset<64> bit_flags;
     uint64_t cookie_payload_size = 0;
     uint64_t message_payload_size = 0;
     Cookie cookie{};
@@ -86,7 +83,7 @@ std::tuple<uint64_t, std::bitset<64>, Cookie, std::string> stub_base::unpack(net
     };
 
     buffer_copy(header_payload, payload, sizeof(uint64_t) * header_payload.size());
-    bit_flags = flags;
+    std::bitset<64> bit_flags = flags;
     payload += sizeof(uint64_t) * header_payload.size();
 
     if (!cookie.ParseFromArray(payload.data(), static_cast<int>(cookie_payload_size)))
@@ -118,8 +115,8 @@ net::awaitable<void> stub_base::dispatch(sender_channel_t &sender_channel, net::
 
     if (bit_flags.test(flag_is_request))
     {
-        co_spawn(co_await net::this_coro::executor,
-            invoke_method(sender_channel, command_id, bit_flags, std::move(cookie), std::move(message_payload)), net::detached);
+        co_spawn(co_await net::this_coro::executor, invoke_method(sender_channel, command_id, bit_flags, std::move(cookie), std::move(message_payload)),
+            net::detached);
     }
     else
     {
@@ -127,8 +124,7 @@ net::awaitable<void> stub_base::dispatch(sender_channel_t &sender_channel, net::
 
         if (!calling_.contains(trace_id))
         {
-            spdlog::info(
-                "{} dispatch_response message out of date, cmd_id: {} cookie: \"{}\"", this->id(), command_id, cookie.ShortDebugString());
+            spdlog::info("{} dispatch_response message out of date, cmd_id: {} cookie: \"{}\"", this->id(), command_id, cookie.ShortDebugString());
             co_return;
         }
 
@@ -139,8 +135,7 @@ net::awaitable<void> stub_base::dispatch(sender_channel_t &sender_channel, net::
 net::awaitable<void> stub_base::invoke_method(
     sender_channel_t &sender_channel, uint64_t command_id, std::bitset<64> bit_flags, Cookie cookie, std::string message_payload)
 {
-    spdlog::debug(
-        "{} invoke_method, cmd_id: {}, flags: {} cookie: \"{}\"", id(), command_id, bit_flags.to_string(), cookie.ShortDebugString());
+    spdlog::debug("{} invoke_method, cmd_id: {}, flags: {} cookie: \"{}\"", id(), command_id, bit_flags.to_string(), cookie.ShortDebugString());
 
     std::string response_message_payload;
     try

@@ -16,6 +16,8 @@ public:
 
     net::awaitable<void> run(net::const_buffer initial = {});
 
+    net::awaitable<void> stop();
+
     template<method_message Message>
     net::awaitable<response_t<Message>> async_call(const request_t<Message> &request);
 
@@ -53,7 +55,14 @@ net::awaitable<void> datagram_stub<MethodChannel>::run(net::const_buffer initial
     status_ = stub_status::running;
     auto parallel_group = make_parallel_group(std::move(deferred_receiver_loop), std::move(deferred_sender_loop));
     auto &&[order, ex_receiver, ex_sender] = co_await parallel_group.async_wait(net::experimental::wait_for_one(), net::deferred);
-    spdlog::info("{} run stopped", id());
+    if (status_ == stub_status::stopping)
+    {
+        spdlog::info("{} run stopped normally", id());
+        status_ = stub_status::stopped;
+        co_return;
+    }
+
+    spdlog::warn("{} run stopped unexpected", id());
 
     if (order[0] == 0)
     {
@@ -86,6 +95,7 @@ net::awaitable<void> datagram_stub<MethodChannel>::sender_loop()
         co_await (method_channel_.async_send(net::buffer(buffers_to_send), net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
         spdlog::debug("{} sender_loop send size {}", id(), buffers_to_send.size());
     }
+    spdlog::info("{} sender_loop stopped", id());
 }
 
 template<async_datagram MethodChannel>
@@ -102,6 +112,7 @@ net::awaitable<void> datagram_stub<MethodChannel>::receiver_loop()
         spdlog::debug("{} receiver_loop received size {}", id(), size_read);
         co_await dispatch(sender_channel_, net::buffer(payload, size_read));
     }
+    spdlog::info("{} receiver_loop stopped", id());
 }
 
 template<async_datagram MethodChannel>

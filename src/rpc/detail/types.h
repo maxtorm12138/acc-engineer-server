@@ -41,6 +41,7 @@ enum message_flags
 
 using reply_channel_t = net::experimental::channel<void(sys::error_code, Cookie, std::string)>;
 using sender_channel_t = net::experimental::channel<void(sys::error_code, std::string)>;
+using stopping_channel_t = net::experimental::channel<void(sys::error_code)>;
 using duration_t = std::chrono::steady_clock::duration;
 
 constexpr uint64_t MAX_PAYLOAD_SIZE = 1400;
