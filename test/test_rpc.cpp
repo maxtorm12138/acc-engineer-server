@@ -5,6 +5,7 @@
 
 #include "proto/service.pb.h"
 #include "rpc/stub.h"
+#include "rpc/error_code.h"
 #include "rpc/types.h"
 
 namespace net = boost::asio;
@@ -23,6 +24,11 @@ net::awaitable<rpc::response_t<proto::Echo>> echo(const proto::Echo::Request &re
     co_return std::move(response);
 }
 
+net::awaitable<rpc::response_t<proto::Authentication>> authentication(const proto::Authentication::Request &request)
+{
+    throw boost::system::system_error(rpc::system_error::method_not_implement);
+}
+
 std::list<tcp_stub_type> tcp_stubs;
 std::list<udp_stub_type> udp_stubs;
 
@@ -30,6 +36,7 @@ net::awaitable<void> server_tcp(int argc, char *argv[])
 {
     rpc::method_group method_group;
     method_group.implement<proto::Echo>(0, echo);
+    method_group.implement<proto::Authentication>(1, authentication);
 
     auto executor = co_await net::this_coro::executor;
 
@@ -49,6 +56,7 @@ net::awaitable<void> server_udp(int argc, char *argv[])
     {
         rpc::method_group method_group;
         method_group.implement<proto::Echo>(0, echo);
+        method_group.implement<proto::Authentication>(1, authentication);
 
         auto executor = co_await net::this_coro::executor;
 
@@ -92,11 +100,22 @@ net::awaitable<void> client_tcp(int argc, char *argv[])
 
     for (;;)
     {
-        proto::Echo::Request request;
-        std::getline(std::cin, *request.mutable_message());
+        try
+        {
+            proto::Authentication::Request request;
+            std::getline(std::cin, *request.mutable_username());
 
-        auto result = co_await stub.async_call<acc_engineer::Echo>(request);
-        std::cerr << "Response: " << result.ShortDebugString() << std::endl;
+            auto result = co_await stub.async_call<acc_engineer::Authentication>(request);
+            std::cerr << "Response: " << result.ShortDebugString() << std::endl;
+        }
+        catch (boost::system::system_error &e)
+        {
+            std::cerr << "System error: " << e.what() << std::endl;
+        }
+        catch (std::exception &e)
+        {
+            std::cerr << "exception: " << e.what() << std::endl;
+        }
     }
 }
 
@@ -114,11 +133,22 @@ net::awaitable<void> client_udp(int argc, char *argv[])
 
     for (;;)
     {
-        proto::Echo::Request request;
-        std::getline(std::cin, *request.mutable_message());
+        try
+        {
+            proto::Authentication::Request request;
+            std::getline(std::cin, *request.mutable_username());
 
-        auto result = co_await stub.async_call<acc_engineer::Echo>(request);
-        std::cerr << "Response: " << result.ShortDebugString() << std::endl;
+            auto result = co_await stub.async_call<acc_engineer::Authentication>(request);
+            std::cerr << "Response: " << result.ShortDebugString() << std::endl;
+        }
+        catch (boost::system::system_error &e)
+        {
+            std::cerr << "System error: " << e.what() << std::endl;
+        }
+        catch (std::exception &e)
+        {
+            std::cerr << "exception: " << e.what() << std::endl;
+        }
     }
 }
 
@@ -153,6 +183,16 @@ int main(int argc, char *argv[])
         }
     }
 
-
-    io_context.run();
+    try
+    {
+        io_context.run();
+    }
+    catch (boost::system::system_error &e)
+    {
+        std::cerr << "io_context System error: " << e.what() << std::endl;
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << "io_context exception: " << e.what() << std::endl;
+    }
 }

@@ -7,12 +7,12 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 
 // spdlog
 #include <spdlog/spdlog.h>
 
 // module
-#include "../result.h"
 #include "error_code.h"
 
 namespace acc_engineer::rpc::detail
@@ -151,7 +151,26 @@ namespace acc_engineer::rpc::detail
     {
         spdlog::debug("{} invoke_method, cmd_id: {}, flags: {} cookie: \"{}\"", id(), command_id, bit_flags.to_string(), cookie.ShortDebugString());
 
-        std::string response_message_payload = co_await std::invoke(method_group_, command_id, std::move(message_payload));
+        std::string response_message_payload;
+        try
+        {
+            response_message_payload = co_await std::invoke(method_group_, command_id, std::move(message_payload));
+        }
+        catch (const sys::system_error &e)
+        {
+            spdlog::error("{} invoke_method system error, code: {} what: \"{}\"", id(), e.code().value(), e.what());
+            cookie.set_error_code(e.code().value());
+        }
+        catch (const std::exception &e)
+        {
+            spdlog::error("{} invoke_method exception, what: \"{}\"", id(), e.what());
+            cookie.set_error_code(static_cast<int>(system_error::exception_occur));
+        }
+        catch (...)
+        {
+            spdlog::error("{} invoke_method unknown exception", id());
+            cookie.set_error_code(static_cast<int>(system_error::exception_occur));
+        }
 
         if (bit_flags.test(flag_no_reply))
         {
@@ -163,6 +182,7 @@ namespace acc_engineer::rpc::detail
         auto payloads = pack(command_id, flags, cookie, response_message_payload);
 
         co_await sender_channel.async_send({}, std::move(payloads), net::use_awaitable);
+
     }
 
 }

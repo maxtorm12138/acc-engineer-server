@@ -15,7 +15,7 @@ namespace acc_engineer::rpc::detail
         method_not_implement = 3,
         exception_occur = 4,
         data_corrupted = 5,
-        call_timeout = 6,
+        operation_timeout = 6,
     };
 
     class system_error_category_impl : public sys::error_category
@@ -34,6 +34,14 @@ namespace acc_engineer::rpc::detail
                     return "protobuf serialize fail";
                 case system_error::proto_parse_fail:
                     return "protobuf parse fail";
+                case system_error::method_not_implement:
+                    return "method not implement";
+                case system_error::exception_occur:
+                    return "exception occur";
+                case system_error::data_corrupted:
+                    return "data corrupted";
+                case system_error::operation_timeout:
+                    return "operation timeout";
                 default:
                     return "unknown";
             }

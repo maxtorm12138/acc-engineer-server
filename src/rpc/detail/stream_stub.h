@@ -8,7 +8,6 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include "error_code.h"
 
@@ -102,18 +101,7 @@ namespace acc_engineer::rpc::detail
     template<detail::method_message Message>
     net::awaitable<detail::response_t<Message>> stream_stub<MethodChannel>::async_call(const detail::request_t<Message> &request, detail::duration_t timeout)
     {
-        using namespace boost::asio::experimental::awaitable_operators;
-        net::steady_timer timeout_timer(co_await net::this_coro::executor);
-        timeout_timer.expires_after(timeout);
-        std::variant<detail::response_t<Message>, std::monostate> result = co_await (do_async_call<Message>(sender_channel_, request) ||
-                                                                                     timeout_timer.async_wait(net::use_awaitable));
-        detail::response_t<Message> *message = std::get_if<detail::response_t<Message>>(&result);
-        if (message != nullptr)
-        {
-            co_return std::move(*message);
-        }
-
-        throw sys::system_error(detail::system_error::call_timeout);
+        return do_async_call<Message>(sender_channel_, request, timeout);
     }
 
 }

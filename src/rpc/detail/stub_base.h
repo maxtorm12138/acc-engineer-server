@@ -7,8 +7,13 @@
 // boost
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/steady_timer.hpp>
+
+#include <boost/scope_exit.hpp>
 
 // module
+#include "timed_operation.h"
 #include "type_requirements.h"
 #include "types.h"
 #include "../method_group.h"
@@ -51,6 +56,9 @@ namespace acc_engineer::rpc::detail
         invoke_method(sender_channel_t &sender_channel, uint64_t command_id, std::bitset<64> bit_flags, rpc::Cookie cookie, std::string message_payload);
 
         template<method_message Message>
+        net::awaitable<response_t<Message>> do_async_call(sender_channel_t &sender_channel, const detail::request_t<Message> &request, duration_t timeout);
+
+        template<method_message Message>
         net::awaitable<response_t<Message>> do_async_call(sender_channel_t &sender_channel, const detail::request_t<Message> &request);
 
         const method_group &method_group_;
@@ -62,6 +70,21 @@ namespace acc_engineer::rpc::detail
         static std::atomic<uint64_t> stub_id_max_;
         static std::atomic<uint64_t> trace_id_max_;
     };
+
+    template<method_message Message>
+    net::awaitable<response_t<Message>>
+    stub_base::do_async_call(sender_channel_t &sender_channel, const detail::request_t<Message> &request, duration_t timeout)
+    {
+        if (timeout == duration_t::max())
+        {
+            co_return co_await do_async_call<Message>(sender_channel, request);
+        }
+        else
+        {
+            net::steady_timer timer(co_await net::this_coro::executor);
+            co_return co_await timed_operation(timer, timeout, do_async_call<Message>(sender_channel, request));
+        }
+    }
 
     template<method_message Message>
     net::awaitable<response_t<Message>> stub_base::do_async_call(sender_channel_t &sender_channel, const detail::request_t<Message> &request)
@@ -88,13 +111,18 @@ namespace acc_engineer::rpc::detail
             co_return response_t<Message>{};
         }
 
+
         reply_channel_t reply_channel(co_await net::this_coro::executor, 1);
         this->calling_[request_cookie.trace_id()] = &reply_channel;
+        BOOST_SCOPE_EXIT_ALL(&)
+                {
+                    spdlog::debug("{} do_async_call {} erased", id(), request_cookie.trace_id());
+                    this->calling_.erase(request_cookie.trace_id());
+                };
 
         co_await sender_channel.async_send({}, std::move(request_payload), net::use_awaitable);
 
         auto[response_cookie, response_message_payload] = co_await reply_channel.async_receive(net::use_awaitable);
-        this->calling_.erase(request_cookie.trace_id());
 
         if (response_cookie.error_code() != 0)
         {
@@ -109,7 +137,6 @@ namespace acc_engineer::rpc::detail
 
         co_return std::move(response);
     }
-
 }
 
 #endif //ACC_ENGINEER_SERVER_RPC_DETAIL_STUB_BASE_H
