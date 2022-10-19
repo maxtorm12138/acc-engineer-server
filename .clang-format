@@ -1,3 +1,6 @@
-# Generated from CLion C/C++ Code Style settings
+Language: Cpp
 BasedOnStyle: Google
 ColumnLimit: 200
+AccessModifierOffset: -4
+SortIncludes: true
+ColumnLimit: 220
