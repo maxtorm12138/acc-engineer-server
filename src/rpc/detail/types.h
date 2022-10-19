@@ -36,7 +36,8 @@ namespace acc_engineer::rpc::detail
 
     enum message_flags
     {
-        flag_is_request = 0
+        flag_is_request = 0,
+        flag_no_reply = 1
     };
 
     using reply_channel_t = net::experimental::channel<void(sys::error_code, rpc::Cookie, std::string)>;

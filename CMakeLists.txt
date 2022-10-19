@@ -56,6 +56,8 @@ set(ACC_ENGINEER_SERVER_RPC_SRCS
         src/rpc/detail/method.h
         src/rpc/detail/types.h
         src/rpc/detail/error_code.h
+        src/rpc/detail/datagram_stub.h
+        src/rpc/detail/stream_stub.h
         src/rpc/method_group.h
         src/rpc/result.h
         src/rpc/stub.h

@@ -34,7 +34,7 @@ namespace acc_engineer::rpc
         {
             if (implements_.contains(command_id))
             {
-                throw std::runtime_error("cmd_id already registered");
+                throw std::runtime_error(fmt::format("cmd_id {} already registered", command_id));
             }
 
             implements_.emplace(command_id, new detail::method<Message, Implement>(std::forward<Implement>(implement)));
@@ -42,20 +42,19 @@ namespace acc_engineer::rpc
             return *this;
         }
 
-        net::awaitable<result<std::string>> operator()(uint64_t command_id, std::string request_message_payload) const
+        net::awaitable<std::string> operator()(uint64_t command_id, std::string request_message_payload) const
         {
             const auto implement = implements_.find(command_id);
             if (implement == implements_.end())
             {
                 spdlog::error("method_group invoke error, no such implement cmd_id {}", command_id);
-                co_return detail::system_error::method_not_implement;
+                throw sys::system_error(detail::system_error::method_not_implement);
             }
 
             co_return co_await std::invoke(*implement->second, std::move(request_message_payload));
         }
 
     private:
-
         std::unordered_map<uint64_t, std::unique_ptr<detail::method_type_erasure>> implements_;
     };
 }

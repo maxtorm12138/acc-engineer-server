@@ -15,7 +15,7 @@ namespace acc_engineer::rpc::detail
         method_type_erasure(const method_type_erasure&) = delete;
         method_type_erasure& operator= (const method_type_erasure&) = delete;
 
-        virtual net::awaitable <result<std::string>> operator()(std::string request_message_payload) = 0;
+        virtual net::awaitable <std::string> operator()(std::string request_message_payload) = 0;
 
         virtual ~method_type_erasure() = default;
     };

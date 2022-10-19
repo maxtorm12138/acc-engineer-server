@@ -78,6 +78,8 @@ namespace acc_engineer::rpc::detail
     requires(MethodImplement implement, const typename MethodMessage::Request &request)
     {
         { method_message<MethodMessage> };
+        { std::is_move_constructible_v<MethodImplement> };
+        { std::is_move_assignable_v<MethodImplement> };
         { std::invoke(implement, request) } -> std::same_as<net::awaitable<typename MethodMessage::Response>>;
     };
 }

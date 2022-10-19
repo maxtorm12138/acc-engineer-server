@@ -24,7 +24,7 @@ namespace acc_engineer::rpc::detail
     public:
         explicit method(Implement &&implement);
 
-        net::awaitable<result<std::string>> operator()(std::string request_message_payload) override;
+        net::awaitable<std::string> operator()(std::string request_message_payload) override;
 
     private:
         Implement implement_;
@@ -38,13 +38,13 @@ namespace acc_engineer::rpc::detail
 
     template<method_message Message, typename Implement>
     requires method_implement<Message, Implement>
-    net::awaitable<result<std::string>> method<Message, Implement>::operator()(std::string request_message_payload)
+    net::awaitable<std::string> method<Message, Implement>::operator()(std::string request_message_payload)
     {
         request_t<Message> request{};
         if (!request.ParseFromString(request_message_payload.data()))
         {
             spdlog::error("method invoke error, parse request fail");
-            co_return system_error::proto_parse_fail;
+            throw sys::system_error(system_error::proto_parse_fail);
         }
 
         response_t<Message> response = co_await std::invoke(implement_, std::cref(request));
@@ -58,7 +58,7 @@ namespace acc_engineer::rpc::detail
         if (!response.SerializeToString(&response_message_payload))
         {
             spdlog::error("method invoke error, serialize response fail");
-            co_return system_error::proto_serialize_fail;
+            throw sys::system_error(system_error::proto_serialize_fail);
         }
 
         co_return std::move(response_message_payload);
