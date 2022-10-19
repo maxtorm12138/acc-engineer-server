@@ -30,8 +30,9 @@ namespace acc_engineer::rpc
 
         template<detail::method_message Message, typename Implement>
         requires detail::method_implement<Message, Implement>
-        method_group &implement(uint64_t command_id, Implement &&implement)
+        method_group &implement(Implement &&implement)
         {
+            uint64_t command_id = Message::descriptor()->options().GetExtension(rpc::cmd_id);
             if (implements_.contains(command_id))
             {
                 throw std::runtime_error(fmt::format("cmd_id {} already registered", command_id));

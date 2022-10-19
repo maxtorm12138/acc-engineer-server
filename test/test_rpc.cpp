@@ -19,6 +19,10 @@ using udp_stub_type = rpc::datagram_stub<net::ip::udp::socket>;
 
 net::awaitable<rpc::response_t<proto::Echo>> echo(const proto::Echo::Request &request)
 {
+    using namespace std::chrono_literals;
+    net::steady_timer timer(co_await net::this_coro::executor);
+    timer.expires_after(1s);
+    co_await timer.async_wait(net::use_awaitable);
     proto::Echo::Response response;
     response.set_message(request.message());
     co_return std::move(response);
@@ -35,8 +39,8 @@ std::list<udp_stub_type> udp_stubs;
 net::awaitable<void> server_tcp(int argc, char *argv[])
 {
     rpc::method_group method_group;
-    method_group.implement<proto::Echo>(0, echo);
-    method_group.implement<proto::Authentication>(1, authentication);
+    method_group.implement<proto::Echo>(echo);
+    method_group.implement<proto::Authentication>(authentication);
 
     auto executor = co_await net::this_coro::executor;
 
@@ -55,8 +59,8 @@ net::awaitable<void> server_udp(int argc, char *argv[])
     try
     {
         rpc::method_group method_group;
-        method_group.implement<proto::Echo>(0, echo);
-        method_group.implement<proto::Authentication>(1, authentication);
+        method_group.implement<proto::Echo>(echo);
+        method_group.implement<proto::Authentication>(authentication);
 
         auto executor = co_await net::this_coro::executor;
 
@@ -102,10 +106,11 @@ net::awaitable<void> client_tcp(int argc, char *argv[])
     {
         try
         {
-            proto::Authentication::Request request;
-            std::getline(std::cin, *request.mutable_username());
+            using namespace std::chrono_literals;
+            proto::Echo::Request request;
+            std::getline(std::cin, *request.mutable_message());
 
-            auto result = co_await stub.async_call<acc_engineer::Authentication>(request);
+            auto result = co_await stub.async_call<acc_engineer::Echo>(request, 500ms);
             std::cerr << "Response: " << result.ShortDebugString() << std::endl;
         }
         catch (boost::system::system_error &e)
@@ -135,10 +140,11 @@ net::awaitable<void> client_udp(int argc, char *argv[])
     {
         try
         {
-            proto::Authentication::Request request;
-            std::getline(std::cin, *request.mutable_username());
+            using namespace std::chrono_literals;
+            proto::Echo::Request request;
+            std::getline(std::cin, *request.mutable_message());
 
-            auto result = co_await stub.async_call<acc_engineer::Authentication>(request);
+            auto result = co_await stub.async_call<acc_engineer::Echo>(request, 500ms);
             std::cerr << "Response: " << result.ShortDebugString() << std::endl;
         }
         catch (boost::system::system_error &e)

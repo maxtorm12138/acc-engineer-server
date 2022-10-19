@@ -59,6 +59,7 @@ set(ACC_ENGINEER_SERVER_RPC_SRCS
         src/rpc/detail/datagram_stub.h
         src/rpc/detail/stream_stub.h
         src/rpc/detail/timed_operation.h
+        src/rpc/timed_operation.h
         src/rpc/method_group.h
         src/rpc/result.h
         src/rpc/stub.h
