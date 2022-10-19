@@ -61,9 +61,11 @@ net::awaitable<void> server_udp(int argc, char *argv[])
             net::ip::udp::endpoint remote;
             auto size_read = co_await acceptor.async_receive_from(net::buffer(buffer), remote, net::use_awaitable);
 
-            net::ip::udp::socket socket(executor, {net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))});
-            socket.connect(remote);
+            net::ip::udp::socket socket(executor);
+            socket.open(net::ip::udp::v4());
             socket.set_option(net::socket_base::reuse_address(true));
+            socket.bind({net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))});
+            socket.connect(remote);
 
             auto &stub = udp_stubs.emplace_back(std::move(socket), method_group);
             co_await stub.run(net::buffer(buffer, size_read));

@@ -141,9 +141,9 @@ namespace acc_engineer::rpc::detail
             }
 
             const auto flags = std::bitset<64>{}.set(detail::flag_is_request, false).to_ullong();
-            const auto payloads = this->pack(command_id, flags, cookie, response_message_payload);
+            auto payloads = pack(command_id, flags, cookie, response_message_payload);
 
-            co_await sender_channel.async_send({}, &payloads, net::use_awaitable);
+            co_await sender_channel.async_send({}, std::move(payloads), net::use_awaitable);
         };
 
         net::co_spawn(co_await net::this_coro::executor, run_method, net::detached);

@@ -40,9 +40,8 @@ namespace acc_engineer::rpc::detail
     };
 
     using reply_channel_t = net::experimental::channel<void(sys::error_code, rpc::Cookie, std::string)>;
-    using sender_channel_t = net::experimental::channel<
-    void(sys::error_code,
-    const std::string *)>;
+    using sender_channel_t = net::experimental::channel<void(sys::error_code, std::string)>;
+    using duration_t = std::chrono::steady_clock::duration;
 
     constexpr uint64_t MAX_PAYLOAD_SIZE = 1400;
 }

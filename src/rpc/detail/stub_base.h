@@ -69,7 +69,7 @@ namespace acc_engineer::rpc::detail
         const auto flags = std::bitset<64>{}.set(flag_is_request, true);
 
         rpc::Cookie request_cookie;
-        request_cookie.set_trace_id(this->generate_trace_id());
+        request_cookie.set_trace_id(generate_trace_id());
         request_cookie.set_error_code(0);
 
         std::string request_message_payload;
@@ -78,12 +78,12 @@ namespace acc_engineer::rpc::detail
             throw sys::system_error(system_error::proto_serialize_fail);
         }
 
-        const auto request_payload = this->pack(command_id, flags, request_cookie, request_message_payload);
+        auto request_payload = pack(command_id, flags, request_cookie, request_message_payload);
 
         reply_channel_t reply_channel(co_await net::this_coro::executor, 1);
         this->calling_[request_cookie.trace_id()] = &reply_channel;
 
-        co_await sender_channel.async_send({}, &request_payload, net::use_awaitable);
+        co_await sender_channel.async_send({}, std::move(request_payload), net::use_awaitable);
 
         auto[response_cookie, response_message_payload] = co_await reply_channel.async_receive(net::use_awaitable);
 

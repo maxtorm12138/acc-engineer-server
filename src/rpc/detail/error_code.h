@@ -15,6 +15,7 @@ namespace acc_engineer::rpc::detail
         method_not_implement = 3,
         exception_occur = 4,
         data_corrupted = 5,
+        call_timeout = 6,
     };
 
     class system_error_category_impl : public sys::error_category
