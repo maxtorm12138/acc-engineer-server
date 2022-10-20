@@ -39,7 +39,7 @@ private:
 
 template<async_stream MethodChannel>
 stream_stub<MethodChannel>::stream_stub(MethodChannel method_channel, const method_group &method_group)
-    : stub_base(method_group)
+    : stub_base(method_group, stub_type::stream)
     , method_channel_(std::move(method_channel))
     , sender_channel_(method_channel_.get_executor())
     , stopping_channel_(method_channel_.get_executor())

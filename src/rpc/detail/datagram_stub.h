@@ -23,6 +23,8 @@ public:
 
     net::awaitable<void> stop();
 
+    net::awaitable<void> deliver(std::string payload);
+
     template<method_message Message>
     net::awaitable<response_t<Message>> async_call(const request_t<Message> &request);
 
@@ -31,17 +33,21 @@ private:
 
     net::awaitable<void> receiver_loop();
 
+    net::awaitable<void> deliver_loop();
+
     MethodChannel method_channel_;
     sender_channel_t sender_channel_;
     stopping_channel_t stopping_channel_;
+    deliver_channel_t deliver_channel_;
 };
 
 template<async_datagram MethodChannel>
 datagram_stub<MethodChannel>::datagram_stub(MethodChannel method_channel, const method_group &method_group)
-    : stub_base(method_group)
+    : stub_base(method_group, stub_type::datagram)
     , method_channel_(std::move(method_channel))
     , sender_channel_(method_channel_.get_executor())
-    , stopping_channel_(method_channel.get_executor())
+    , stopping_channel_(method_channel_.get_executor())
+    , deliver_channel_(method_channel_.get_executor())
 {}
 
 template<async_datagram MethodChannel>
@@ -58,10 +64,11 @@ net::awaitable<void> datagram_stub<MethodChannel>::run(net::const_buffer initial
 
     auto deferred_sender_loop = net::co_spawn(executor, sender_loop(), net::deferred);
     auto deferred_receiver_loop = net::co_spawn(executor, receiver_loop(), net::deferred);
+    auto deferred_deliver_loop = net::co_spawn(executor, deliver_loop(), net::deferred);
 
     status_ = stub_status::running;
-    auto parallel_group = make_parallel_group(std::move(deferred_receiver_loop), std::move(deferred_sender_loop));
-    auto &&[order, ex_receiver, ex_sender] = co_await parallel_group.async_wait(net::experimental::wait_for_one(), net::deferred);
+    auto parallel_group = make_parallel_group(std::move(deferred_receiver_loop), std::move(deferred_sender_loop), std::move(deferred_deliver_loop));
+    auto &&[order, ex_receiver, ex_sender, ex_deliver] = co_await parallel_group.async_wait(net::experimental::wait_for_one(), net::deferred);
 
     for (auto &&[trace_id, calling_channel] : calling_)
     {
@@ -83,11 +90,19 @@ net::awaitable<void> datagram_stub<MethodChannel>::run(net::const_buffer initial
             std::rethrow_exception(ex_receiver);
         }
     }
-    else
+    else if (order[0] == 1)
     {
         if (ex_sender != nullptr)
         {
             spdlog::warn("{} run sender exception occurred", id());
+            std::rethrow_exception(ex_sender);
+        }
+    }
+    else
+    {
+        if (ex_deliver != nullptr)
+        {
+            spdlog::warn("{} run deliver exception occurred", id());
             std::rethrow_exception(ex_sender);
         }
     }
@@ -104,6 +119,12 @@ net::awaitable<void> datagram_stub<MethodChannel>::stop()
         co_await stopping_channel_.async_receive(net::use_awaitable);
     }
     co_return;
+}
+
+template<async_datagram MethodChannel>
+net::awaitable<void> datagram_stub<MethodChannel>::deliver(std::string payload)
+{
+    co_await deliver_channel_.async_send({}, std::move(payload), net::use_awaitable);
 }
 
 template<async_datagram MethodChannel>
@@ -183,6 +204,47 @@ net::awaitable<void> datagram_stub<MethodChannel>::receiver_loop()
 
             spdlog::debug("{} receiver_loop received size {}", id(), size_read);
             co_await dispatch(sender_channel_, net::buffer(payload, size_read));
+        }
+    }
+    catch (const sys::system_error &ex)
+    {
+        spdlog::warn("{} receiver_loop system_error, what: {}", id(), ex.what());
+        throw;
+    }
+    catch (const std::exception &ex)
+    {
+        spdlog::warn("{} receiver_loop std::exception, what: {}", id(), ex.what());
+        throw;
+    }
+}
+
+template<async_datagram MethodChannel>
+net::awaitable<void> datagram_stub<MethodChannel>::deliver_loop()
+{
+    try
+    {
+        using namespace std::chrono_literals;
+        using namespace boost::asio::experimental::awaitable_operators;
+        using detail::stub_status;
+
+        while (status_ == stub_status::running)
+        {
+            sys::error_code ec;
+
+            std::string payload = co_await deliver_channel_.async_receive(await_ec[ec]);
+            if (ec)
+            {
+                if (ec.category() == net::experimental::error::channel_category)
+                {
+                    spdlog::info("{} deliver_loop stopped, method_channel: {}", id(), ec.message());
+                    co_return;
+                }
+
+                throw sys::system_error(ec);
+            }
+
+            spdlog::debug("{} deliver_loop received size {}", id(), payload.size());
+            co_await dispatch(sender_channel_, net::buffer(payload));
         }
     }
     catch (const sys::system_error &ex)

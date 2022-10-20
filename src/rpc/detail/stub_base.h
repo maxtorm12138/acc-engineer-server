@@ -12,8 +12,7 @@
 #include <boost/scope_exit.hpp>
 
 // module
-#include "../method_group.h"
-#include "await_ec.h"
+#include "method.h"
 #include "type_requirements.h"
 #include "types.h"
 
@@ -21,18 +20,11 @@
 #include "proto/rpc.pb.h"
 
 namespace acc_engineer::rpc::detail {
-enum class stub_status
-{
-    idle = 1,
-    running = 2,
-    stopping = 3,
-    stopped = 4,
-};
 
 class stub_base
 {
 public:
-    explicit stub_base(const method_group &method_group);
+    explicit stub_base(const method_group &method_group, stub_type stub_type);
 
     [[nodiscard]] uint64_t id() const;
 
@@ -53,6 +45,7 @@ protected:
     net::awaitable<response_t<Message>> do_async_call(sender_channel_t &sender_channel, const request_t<Message> &request);
 
     const method_group &method_group_;
+    const stub_type stub_type_;
     const uint64_t stub_id_{stub_id_max_++};
     stub_status status_{stub_status::idle};
     std::unordered_map<uint64_t, reply_channel_t *> calling_{};

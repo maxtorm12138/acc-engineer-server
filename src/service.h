@@ -9,6 +9,8 @@
 
 #include "config.h"
 #include "rpc/stub.h"
+#include "rpc/types.h"
+#include "rpc/method_group.h"
 
 #include "proto/service.pb.h"
 
@@ -46,8 +48,12 @@ private:
 
     std::unordered_map<uint64_t, std::weak_ptr<tcp_stub_t>> id_tcp_stub_;
     std::unordered_map<uint64_t, std::weak_ptr<udp_stub_t>> id_udp_stub_;
-    std::unordered_map<uint64_t, std::tuple<uint64_t, uint64_t, std::string>> driver_stub_;
+    std::unordered_map<net::ip::udp::endpoint, uint64_t> ep_id_udp_;
     std::unordered_map<uint64_t, std::weak_ptr<net::steady_timer>> stub_watcher_;
+
+    // driver
+    std::unordered_map<std::string, uint64_t> driver_name_id_;
+    std::unordered_map<uint64_t, std::pair<uint64_t, uint64_t>> driver_id_stub_;
 
     static std::atomic<uint64_t> driver_id_max_;
 };

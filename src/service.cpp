@@ -34,7 +34,7 @@ net::awaitable<void> service::tcp_run()
 {
     auto executor = co_await net::this_coro::executor;
     net::ip::tcp::acceptor acceptor(executor, net::ip::tcp::endpoint{config_.address(), config_.port()});
-
+    spdlog::info("listening tcp on {}:{}", acceptor.local_endpoint().address().to_string(), acceptor.local_endpoint().port());
     while (running_)
     {
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
@@ -51,12 +51,25 @@ net::awaitable<void> service::udp_run()
     acceptor.open(bind_endpoint.protocol());
     acceptor.set_option(net::socket_base::reuse_address(true));
     acceptor.bind(bind_endpoint);
+    spdlog::info("listening udp on {}:{}", acceptor.local_endpoint().address().to_string(), acceptor.local_endpoint().port());
 
     std::string initial(1500, '\0');
     while (running_)
     {
         net::ip::udp::endpoint remote;
         size_t size_read = co_await acceptor.async_receive_from(net::buffer(initial), remote, net::use_awaitable);
+
+        if (ep_id_udp_.contains(remote))
+        {
+            uint64_t stub_id = ep_id_udp_[remote];
+
+            if (auto stub = id_udp_stub_[stub_id].lock(); stub != nullptr)
+            {
+                spdlog::info("{} deliver from {}:{}", stub_id, remote.address().to_string(), remote.port());
+                co_await stub->deliver(std::string(initial.data(), size_read));
+            }
+            continue;
+        }
 
         net::ip::udp::socket socket(co_await net::this_coro::executor);
         socket.open(bind_endpoint.protocol());
@@ -124,7 +137,7 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
         stub_id = udp_stub->id();
         auto stub_watch = std::make_shared<net::steady_timer>(co_await net::this_coro::executor);
 
-        auto watcher = [stub_id, weak_udp_stub = std::weak_ptr<udp_stub_t>(udp_stub), stub_watch]() -> net::awaitable<void> {
+        auto watcher = [stub_id, weak_udp_stub = std::weak_ptr(udp_stub), stub_watch]() -> net::awaitable<void> {
             sys::error_code ec = net::error::operation_aborted;
             while (ec == net::error::operation_aborted)
             {
@@ -141,12 +154,14 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
 
         spdlog::info("{} udp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
 
+        ep_id_udp_[remote_endpoint] = stub_id;
         stub_watcher_[stub_id] = stub_watch;
         id_udp_stub_[stub_id] = udp_stub;
         BOOST_SCOPE_EXIT_ALL(&)
         {
             stub_watcher_.erase(stub_id);
             id_udp_stub_.erase(stub_id);
+            ep_id_udp_.erase(remote_endpoint);
         };
 
         stub_watch->expires_after(500ms);
@@ -156,6 +171,15 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
     catch (sys::system_error &ex)
     {}
     spdlog::info("{} udp disconnected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
+}
+
+void service::reset_watcher(uint64_t stub_id)
+{
+    using namespace std::chrono_literals;
+    if (auto watch = stub_watcher_[stub_id].lock(); watch != nullptr)
+    {
+        watch->expires_after(10s);
+    }
 }
 
 net::awaitable<Echo::Response> service::echo(const rpc::context_t &context, const Echo::Request &request)
@@ -171,19 +195,50 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
 {
     reset_watcher(context.stub_id);
 
+    if (request.password() != config_.password())
+    {
+        Authentication::Response response;
+        response.set_error_code(1);
+        response.set_error_message("authentication failure");
+        co_return response;
+    }
+
+    if (driver_name_id_.contains(request.driver_name()) && driver_name_id_[request.driver_name()] == request.driver_id())
+    {
+        switch (context.stub_type)
+        {
+        case rpc::detail::stub_type::stream:
+            driver_id_stub_[request.driver_id()].first = context.stub_id;
+            break;
+        case rpc::detail::stub_type::datagram:
+            driver_id_stub_[request.driver_id()].second = context.stub_id;
+            break;
+        }
+    }
+
+    uint64_t allocated_driver_id = driver_id_max_++;
+
+    for (auto &driver_item : driver_name_id_)
+    {
+        OnlineNotify::Request online_notify_request;
+        online_notify_request.set_driver_id(allocated_driver_id);
+        online_notify_request.set_driver_name(request.driver_name());
+
+        uint64_t tcp_stub_id = driver_id_stub_[driver_item.second].first;
+
+        if (auto stub = id_tcp_stub_[tcp_stub_id].lock(); stub != nullptr)
+        {
+            stub->async_call<OnlineNotify>(online_notify_request);
+        }
+    }
+
+    driver_name_id_[request.driver_name()] = allocated_driver_id;
+
     Authentication::Response response;
     response.set_error_code(0);
     response.set_error_message("success");
-    response.set_driver_id(driver_id_max_++);
+    response.set_driver_id(driver_name_id_[allocated_driver_id]);
     co_return response;
 }
 
-void service::reset_watcher(uint64_t stub_id)
-{
-    using namespace std::chrono_literals;
-    if (auto watch = stub_watcher_[stub_id].lock(); watch != nullptr)
-    {
-        watch->expires_after(10s);
-    }
-}
 } // namespace acc_engineer

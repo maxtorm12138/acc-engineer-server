@@ -16,11 +16,12 @@
 #include "error_code.h"
 
 namespace acc_engineer::rpc::detail {
-std::atomic<uint64_t> stub_base::stub_id_max_;
-std::atomic<uint64_t> stub_base::trace_id_max_;
+std::atomic<uint64_t> stub_base::stub_id_max_{1};
+std::atomic<uint64_t> stub_base::trace_id_max_{1};
 
-stub_base::stub_base(const method_group &method_group)
+stub_base::stub_base(const method_group &method_group, stub_type stub_type)
     : method_group_(method_group)
+    , stub_type_(stub_type)
 {}
 
 uint64_t stub_base::id() const
@@ -133,7 +134,7 @@ net::awaitable<void> stub_base::dispatch(sender_channel_t &sender_channel, net::
 net::awaitable<void> stub_base::invoke_method(sender_channel_t &sender_channel, uint64_t command_id, std::bitset<64> bit_flags, Cookie cookie, std::string message_payload)
 {
     spdlog::debug("{} invoke_method, cmd_id: {}, flags: {} cookie: {}", id(), command_id, bit_flags.to_string(), cookie.ShortDebugString());
-    context_t context{.stub_id = id()};
+    context_t context{.stub_id = id(), .stub_type = stub_type_};
     std::string response_message_payload;
     try
     {
