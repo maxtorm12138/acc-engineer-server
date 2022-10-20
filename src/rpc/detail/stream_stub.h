@@ -69,7 +69,7 @@ net::awaitable<void> stream_stub<MethodChannel>::run()
 
     if (previous_status == stub_status::stopping)
     {
-        spdlog::warn("{} run stopped normally", id());
+        spdlog::info("{} run stopped normally", id());
         co_await stopping_channel_.async_send({}, id(), net::use_awaitable);
     }
     else if (order[0] == 0)
