@@ -41,8 +41,13 @@ enum message_flags
 
 using reply_channel_t = net::experimental::channel<void(sys::error_code, Cookie, std::string)>;
 using sender_channel_t = net::experimental::channel<void(sys::error_code, std::string)>;
-using stopping_channel_t = net::experimental::channel<void(sys::error_code)>;
+using stopping_channel_t = net::experimental::channel<void(sys::error_code, uint64_t)>;
 using duration_t = std::chrono::steady_clock::duration;
+
+struct context_t
+{
+    uint64_t stub_id;
+};
 
 constexpr uint64_t MAX_PAYLOAD_SIZE = 1400;
 } // namespace acc_engineer::rpc::detail

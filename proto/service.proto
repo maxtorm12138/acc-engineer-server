@@ -4,47 +4,35 @@ import "rpc.proto";
 
 message Echo
 {
-	option(rpc.cmd_id) = 0;
-	message Request
-	{
-		string message = 1;
-	}
+  option(rpc.cmd_id) = 0;
+  message Request
+  {
+    string message = 1;
+  }
 
-	message Response
-	{
-		string message = 1;
-	}
-
-	oneof payload
-	{
-		Request request = 3;
-		Response response = 4;
-	}
+  message Response
+  {
+    string message = 1;
+  }
 }
 
 message Authentication
 {
-	option(rpc.cmd_id) = 1;
+  option(rpc.cmd_id) = 1;
 
-	message Request
-	{
-		string username = 1;
-		string password = 2;
-		string lobby = 3;
-	}
+  message Request
+  {
+    string username = 1;
+    string password = 2;
+    uint64 driver_id = 3;
+  }
 
-	message Response
-	{
-	  string ticket = 1;
-	  uint64 id = 2;
-	
-	  int64 error_code = 100;
-	  string error_message = 101;
-	}
+  message Response
+  {
+    uint64 driver_id = 2;
 
-	oneof payload
-	{
-		Request request = 3;
-		Response response = 4;
-	}
+    int64 error_code = 100;
+    string error_message = 101;
+  }
+
 }

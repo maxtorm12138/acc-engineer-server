@@ -3,8 +3,13 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/experimental/parallel_group.hpp>
+#include <boost/asio/deferred.hpp>
 
 #include "stub_base.h"
+#include "timed_operation.h"
+#include "error_code.h"
+#include "await_ec.h"
 
 namespace acc_engineer::rpc::detail {
 
@@ -28,6 +33,7 @@ private:
 
     MethodChannel method_channel_;
     sender_channel_t sender_channel_;
+    stopping_channel_t stopping_channel_;
 };
 
 template<async_datagram MethodChannel>
@@ -35,6 +41,7 @@ datagram_stub<MethodChannel>::datagram_stub(MethodChannel method_channel, const 
     : stub_base(method_group)
     , method_channel_(std::move(method_channel))
     , sender_channel_(method_channel_.get_executor())
+    , stopping_channel_(method_channel.get_executor())
 {}
 
 template<async_datagram MethodChannel>
@@ -55,19 +62,24 @@ net::awaitable<void> datagram_stub<MethodChannel>::run(net::const_buffer initial
     status_ = stub_status::running;
     auto parallel_group = make_parallel_group(std::move(deferred_receiver_loop), std::move(deferred_sender_loop));
     auto &&[order, ex_receiver, ex_sender] = co_await parallel_group.async_wait(net::experimental::wait_for_one(), net::deferred);
-    if (status_ == stub_status::stopping)
+
+    for (auto &&[trace_id, calling_channel] : calling_)
     {
-        spdlog::info("{} run stopped normally", id());
-        status_ = stub_status::stopped;
-        co_return;
+        calling_channel->close();
     }
 
-    spdlog::warn("{} run stopped unexpected", id());
+    auto previous_status = status_;
+    status_ = stub_status::stopped;
 
-    if (order[0] == 0)
+    if (previous_status == stub_status::stopping)
+    {
+        spdlog::info("{} run stopped normally", id());
+    }
+    else if (order[0] == 0)
     {
         if (ex_receiver != nullptr)
         {
+            spdlog::warn("{} run receiver exception occurred", id());
             std::rethrow_exception(ex_receiver);
         }
     }
@@ -75,44 +87,114 @@ net::awaitable<void> datagram_stub<MethodChannel>::run(net::const_buffer initial
     {
         if (ex_sender != nullptr)
         {
+            spdlog::warn("{} run sender exception occurred", id());
             std::rethrow_exception(ex_sender);
         }
     }
 }
 
 template<async_datagram MethodChannel>
+net::awaitable<void> datagram_stub<MethodChannel>::stop()
+{
+    if (status_ == stub_status::running)
+    {
+        status_ = stub_status::stopping;
+        method_channel_.close();
+        sender_channel_.close();
+        co_await stopping_channel_.async_receive(net::use_awaitable);
+    }
+    co_return;
+}
+
+template<async_datagram MethodChannel>
 net::awaitable<void> datagram_stub<MethodChannel>::sender_loop()
 {
-    using namespace std::chrono_literals;
-    using namespace boost::asio::experimental::awaitable_operators;
-    using detail::stub_status;
-
-    net::steady_timer sender_timer(co_await net::this_coro::executor);
-    while (status_ == stub_status::running)
+    try
     {
-        std::string buffers_to_send = co_await this->sender_channel_.async_receive(net::use_awaitable);
-        sender_timer.expires_after(500ms);
-        co_await (method_channel_.async_send(net::buffer(buffers_to_send), net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
-        spdlog::debug("{} sender_loop send size {}", id(), buffers_to_send.size());
+        using namespace std::chrono_literals;
+        using namespace boost::asio::experimental::awaitable_operators;
+        using detail::stub_status;
+
+        net::steady_timer sender_timer(co_await net::this_coro::executor);
+        while (status_ == stub_status::running)
+        {
+            sys::error_code ec;
+            std::string buffers_to_send = co_await sender_channel_.async_receive(await_ec[ec]);
+            if (ec)
+            {
+                if (ec.category() == net::experimental::error::channel_category)
+                {
+                    spdlog::info("{} sender_loop stopped, sender_channel: {}", id(), ec.message());
+                    co_return;
+                }
+                throw sys::system_error(ec);
+            }
+
+            co_await timed_operation(sender_timer, 500ms, method_channel_.async_send(net::buffer(buffers_to_send), await_ec[ec]));
+            if (ec)
+            {
+                if (ec == net::error::eof || ec == net::error::operation_aborted)
+                {
+                    spdlog::info("{} sender_loop stopped, method_channel: {}", id(), ec.message());
+                    co_return;
+                }
+                throw sys::system_error(ec);
+            }
+
+            spdlog::debug("{} sender_loop send size {}", id(), buffers_to_send.size());
+        }
     }
-    spdlog::info("{} sender_loop stopped", id());
+    catch (const sys::system_error &ex)
+    {
+        spdlog::warn("{} sender_loop system_error, what: {}", id(), ex.what());
+        throw;
+    }
+    catch (const std::exception &ex)
+    {
+        spdlog::warn("{} sender_loop std::exception, what: {}", id(), ex.what());
+        throw;
+    }
 }
 
 template<async_datagram MethodChannel>
 net::awaitable<void> datagram_stub<MethodChannel>::receiver_loop()
 {
-    using namespace std::chrono_literals;
-    using namespace boost::asio::experimental::awaitable_operators;
-    using detail::stub_status;
-
-    std::string payload(MAX_PAYLOAD_SIZE, '\0');
-    while (this->status_ == stub_status::running)
+    try
     {
-        size_t size_read = co_await method_channel_.async_receive(net::buffer(payload), net::use_awaitable);
-        spdlog::debug("{} receiver_loop received size {}", id(), size_read);
-        co_await dispatch(sender_channel_, net::buffer(payload, size_read));
+        using namespace std::chrono_literals;
+        using namespace boost::asio::experimental::awaitable_operators;
+        using detail::stub_status;
+
+        std::string payload(MAX_PAYLOAD_SIZE, '\0');
+        while (status_ == stub_status::running)
+        {
+            sys::error_code ec;
+
+            size_t size_read = co_await method_channel_.async_receive(net::buffer(payload), await_ec[ec]);
+            if (ec)
+            {
+                if (ec == net::error::eof || ec == net::error::operation_aborted)
+                {
+                    spdlog::info("{} receiver_loop stopped, method_channel: {}", id(), ec.message());
+                    co_return;
+                }
+                throw sys::system_error(ec);
+            }
+
+            spdlog::debug("{} receiver_loop received size {}", id(), size_read);
+            co_await dispatch(sender_channel_, net::buffer(payload, size_read));
+        }
     }
-    spdlog::info("{} receiver_loop stopped", id());
+    catch (const sys::system_error &ex)
+    {
+        spdlog::warn("{} receiver_loop system_error, what: {}", id(), ex.what());
+        throw;
+    }
+    catch (const std::exception &ex)
+    {
+        spdlog::warn("{} receiver_loop std::exception, what: {}", id(), ex.what());
+        throw;
+    }
 }
 
 template<async_datagram MethodChannel>

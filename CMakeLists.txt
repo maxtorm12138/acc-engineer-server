@@ -34,9 +34,9 @@ function(generate_proto PROTO_ROOT PROTO_FILE GENERATE_PATH OUT_FILES)
 
     execute_process(COMMAND ${PROTOBUF_PROTOC_EXECUTABLE} --proto_path=${NATIVE_PROTO_ROOT} --cpp_out=${NATIVE_GENERATE_PATH} ${NATIVE_PROTO_FILE} RESULT_VARIABLE RV)
 
-    if(${RV})
+    if (${RV})
         message(FATAL_ERROR "Generation of data model returned ${RV} for proto ${NATIVE_PROTO_FILE}")
-    endif()
+    endif ()
     set(${OUT_FILES} ${PROTO_CPP_SRC} ${PROTO_CPP_HDR} PARENT_SCOPE)
 
 endfunction()
@@ -48,7 +48,6 @@ set(ACC_ENGINEER_PROTO_INCLUDE_DIR
         ${CMAKE_CURRENT_BINARY_DIR})
 
 set(ACC_ENGINEER_SERVER_RPC_SRCS
-        src/rpc/detail/method_type_erasure.h
         src/rpc/detail/stub_base.h
         src/rpc/detail/stub_base.cpp
         src/rpc/detail/type_requirements.h
@@ -87,7 +86,7 @@ set(ACC_ENGINEER_SERVER_SRCS
         src/service.h
         src/main.cpp)
 
-add_executable(acc-engineer-server ${ACC_ENGINEER_SERVER_SRCS} ${PROTO_SRCS} ${PROTO_HDRS})
+add_executable(acc-engineer-server ${ACC_ENGINEER_SERVER_SRCS})
 target_link_libraries(acc-engineer-server acc-engineer-server-rpc)
 target_link_libraries(acc-engineer-server Boost::boost Boost::program_options)
 target_link_libraries(acc-engineer-server protobuf::libprotobuf)
@@ -99,9 +98,9 @@ target_compile_definitions(acc-engineer-server PRIVATE BOOST_ASIO_NO_DEPRECATED)
 
 if (MSVC)
     target_compile_definitions(acc-engineer-server PRIVATE _WIN32_WINNT=0x0A00)
-endif()
+endif ()
 
 
 if (NOT ACC_ENGINEER_NO_BUILD_TESTS)
     add_subdirectory(test/)
-endif()
+endif ()

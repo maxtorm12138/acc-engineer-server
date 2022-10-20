@@ -37,18 +37,32 @@ concept async_stream = requires(Stream stream, net::mutable_buffer read_buffer, 
 };
 
 template<typename Datagram>
-concept async_datagram = requires(
-    Datagram datagram, typename Datagram::endpoint_type endpoint, net::mutable_buffer read_buffer, net::const_buffer write_buffer)
-{
-    {std::is_nothrow_move_constructible_v<Datagram>};
-    {std::is_nothrow_move_assignable_v<Datagram>};
-    {datagram.async_receive_from(read_buffer, endpoint, net::use_awaitable)};
-    {datagram.async_receive(read_buffer, net::use_awaitable)};
-    {datagram.async_send_to(write_buffer, endpoint, net::use_awaitable)};
-    {datagram.async_send(write_buffer, net::use_awaitable)};
-    {datagram.close()};
-    {datagram.get_executor()};
-};
+concept async_datagram = requires(Datagram datagram, typename Datagram::endpoint_type endpoint, net::mutable_buffer read_buffer, net::const_buffer write_buffer) {
+                             {
+                                 std::is_nothrow_move_constructible_v<Datagram>
+                             };
+                             {
+                                 std::is_nothrow_move_assignable_v<Datagram>
+                             };
+                             {
+                                 datagram.async_receive_from(read_buffer, endpoint, net::use_awaitable)
+                             };
+                             {
+                                 datagram.async_receive(read_buffer, net::use_awaitable)
+                             };
+                             {
+                                 datagram.async_send_to(write_buffer, endpoint, net::use_awaitable)
+                             };
+                             {
+                                 datagram.async_send(write_buffer, net::use_awaitable)
+                             };
+                             {
+                                 datagram.close()
+                             };
+                             {
+                                 datagram.get_executor()
+                             };
+                         };
 
 template<typename MethodChannel>
 concept method_channel = async_stream<MethodChannel> || async_datagram<MethodChannel>;
@@ -67,16 +81,21 @@ concept result_value = requires
     {std::is_copy_constructible_v<Value>};
 };
 
-template<typename MethodMessage, typename MethodImplement>
-concept method_implement = requires(MethodImplement implement, const typename MethodMessage::Request &request)
-{
-    {method_message<MethodMessage>};
-    {std::is_move_constructible_v<MethodImplement>};
-    {std::is_move_assignable_v<MethodImplement>};
-    {
-        std::invoke(implement, request)
-        } -> std::same_as<net::awaitable<typename MethodMessage::Response>>;
-};
+template<typename MethodMessage, typename MethodImplement, typename Context>
+concept method_implement = requires(MethodImplement implement, const typename MethodMessage::Request &request, const Context &context) {
+                               {
+                                   method_message<MethodMessage>
+                               };
+                               {
+                                   std::is_move_constructible_v<MethodImplement>
+                               };
+                               {
+                                   std::is_move_assignable_v<MethodImplement>
+                               };
+                               {
+                                   std::invoke(implement, context, request)
+                                   } -> std::same_as<net::awaitable<typename MethodMessage::Response>>;
+                           };
 } // namespace acc_engineer::rpc::detail
 
 #endif // ACC_ENGINEER_SERVER_RPC_DETAIL_TYPE_REQUIREMENTS_H

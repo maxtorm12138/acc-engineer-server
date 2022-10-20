@@ -12,9 +12,10 @@ enum class system_error
     proto_serialize_fail = 1,
     proto_parse_fail = 2,
     method_not_implement = 3,
-    exception_occur = 4,
+    unhandled_exception = 4,
     data_corrupted = 5,
     operation_timeout = 6,
+    connection_closed = 7,
 };
 
 // ReSharper disable once CppPolymorphicClassWithNonVirtualPublicDestructor
@@ -38,12 +39,14 @@ public:
             return "protobuf parse fail";
         case system_error::method_not_implement:
             return "method not implement";
-        case system_error::exception_occur:
+        case system_error::unhandled_exception:
             return "exception occur";
         case system_error::data_corrupted:
             return "data corrupted";
         case system_error::operation_timeout:
             return "operation timeout";
+        case system_error::connection_closed:
+            return "connection closed";
         default:
             return "unknown";
         }

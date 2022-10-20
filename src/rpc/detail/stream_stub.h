@@ -1,13 +1,16 @@
 #ifndef ACC_ENGINEER_SERVER_RPC_DETAIL_STREAM_STUB_H
 #define ACC_ENGINEER_SERVER_RPC_DETAIL_STREAM_STUB_H
 
-#include "stub_base.h"
-
-#include <boost/asio/read.hpp>
-#include <boost/asio/write.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/experimental/parallel_group.hpp>
 #include <boost/asio/deferred.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/asio/write.hpp>
 
+#include "stub_base.h"
+#include "timed_operation.h"
+#include "await_ec.h"
 #include "error_code.h"
 
 namespace acc_engineer::rpc::detail {
@@ -55,19 +58,25 @@ net::awaitable<void> stream_stub<MethodChannel>::run()
     status_ = stub_status::running;
     auto parallel_group = make_parallel_group(std::move(deferred_receiver_loop), std::move(deferred_sender_loop));
     auto &&[order, ex_receiver, ex_sender] = co_await parallel_group.async_wait(net::experimental::wait_for_one(), net::deferred);
-    if (status_ == stub_status::stopping)
+
+    for (auto &&[trace_id, calling_channel] : calling_)
     {
-        spdlog::warn("{} run stopped normally", id());
-        status_ = stub_status::stopped;
-        co_await stopping_channel_.async_send({}, net::use_awaitable);
-        co_return;
+        calling_channel->close();
     }
 
-    spdlog::warn("{} run stopped unexpected", id());
-    if (order[0] == 0)
+    auto previous_status = status_;
+    status_ = stub_status::stopped;
+
+    if (previous_status == stub_status::stopping)
+    {
+        spdlog::warn("{} run stopped normally", id());
+        co_await stopping_channel_.async_send({}, id(), net::use_awaitable);
+    }
+    else if (order[0] == 0)
     {
         if (ex_receiver != nullptr)
         {
+            spdlog::warn("{} run receiver exception occurred", id());
             std::rethrow_exception(ex_receiver);
         }
     }
@@ -75,6 +84,7 @@ net::awaitable<void> stream_stub<MethodChannel>::run()
     {
         if (ex_sender != nullptr)
         {
+            spdlog::warn("{} run sender exception occurred", id());
             std::rethrow_exception(ex_sender);
         }
     }
@@ -105,20 +115,40 @@ net::awaitable<void> stream_stub<MethodChannel>::sender_loop()
         net::steady_timer sender_timer(co_await net::this_coro::executor);
         while (status_ == stub_status::running)
         {
-            std::string buffers_to_send = co_await sender_channel_.async_receive(net::use_awaitable);
-            sender_timer.expires_after(500ms);
-            co_await (net::async_write(method_channel_, net::buffer(buffers_to_send), net::use_awaitable) || sender_timer.async_wait(net::use_awaitable));
+            sys::error_code ec;
+            std::string buffers_to_send = co_await sender_channel_.async_receive(await_ec[ec]);
+            if (ec)
+            {
+                if (ec.category() == net::experimental::error::channel_category)
+                {
+                    spdlog::info("{} sender_loop stopped, sender_channel: {}", id(), ec.message());
+                    co_return;
+                }
+                throw sys::system_error(ec);
+            }
+
+            co_await timed_operation(sender_timer, 500ms, net::async_write(method_channel_, net::buffer(buffers_to_send), await_ec[ec]));
+            if (ec)
+            {
+                if (ec == net::error::eof || ec == net::error::operation_aborted)
+                {
+                    spdlog::info("{} sender_loop stopped, method_channel: {}", id(), ec.message());
+                    co_return;
+                }
+                throw sys::system_error(ec);
+            }
+
             spdlog::debug("{} sender_loop send size {}", id(), buffers_to_send.size());
         }
     }
-    catch (const sys::system_error &error)
+    catch (const sys::system_error &ex)
     {
-        spdlog::info("{} sender_loop system_error stopped, what: {}", id(), error.what());
+        spdlog::warn("{} sender_loop system_error, what: {}", id(), ex.what());
         throw;
     }
-    catch (const std::exception &error)
+    catch (const std::exception &ex)
     {
-        spdlog::info("{} sender_loop exception stopped, what: {}", id(), error.what());
+        spdlog::warn("{} sender_loop std::exception, what: {}", id(), ex.what());
         throw;
     }
 }
@@ -133,34 +163,61 @@ net::awaitable<void> stream_stub<MethodChannel>::receiver_loop()
         using detail::stub_status;
 
         std::string payload(MAX_PAYLOAD_SIZE, '\0');
+        net::steady_timer receiver_timer(co_await net::this_coro::executor);
 
-        while (this->status_ == stub_status::running)
+        while (status_ == stub_status::running)
         {
+            sys::error_code ec;
+
             uint64_t payload_size = 0;
-            co_await net::async_read(method_channel_, net::buffer(&payload_size, sizeof(payload_size)), net::use_awaitable);
+            co_await net::async_read(method_channel_, net::buffer(&payload_size, sizeof(payload_size)), await_ec[ec]);
+            if (ec)
+            {
+                if (ec == net::error::eof || ec == net::error::operation_aborted)
+                {
+                    spdlog::info("{} receiver_loop stopped, method_channel: {}", id(), ec.message());
+                    co_return;
+                }
+                throw sys::system_error(ec);
+            }
+
+            if (payload_size > MAX_PAYLOAD_SIZE)
+            {
+                throw sys::system_error(system_error::data_corrupted);
+            }
 
             const size_t size_read =
-                co_await net::async_read(method_channel_, net::buffer(payload.data() + sizeof(payload_size), payload_size), net::use_awaitable);
+                co_await timed_operation(receiver_timer, 500ms, net::async_read(method_channel_, net::buffer(payload.data() + sizeof(payload_size), payload_size), await_ec[ec]));
+
+            if (ec)
+            {
+                if (ec == net::error::eof || ec == net::error::operation_aborted)
+                {
+                    spdlog::info("{} receiver_loop stopped, method_channel: {}", id(), ec.message());
+                    co_return;
+                }
+                throw sys::system_error(ec);
+            }
 
             if (size_read != payload_size)
             {
                 throw sys::system_error(system_error::data_corrupted);
             }
-
             memcpy(payload.data(), &payload_size, sizeof(payload_size));
+
             spdlog::debug("{} receiver_loop received size {}", id(), sizeof(payload_size) + size_read);
 
             co_await dispatch(sender_channel_, net::buffer(payload, sizeof(payload_size) + size_read));
         }
     }
-    catch (const sys::system_error &error)
+    catch (const sys::system_error &ex)
     {
-        spdlog::warn("{} receiver_loop system_error stopped, what: {}", id(), error.what());
+        spdlog::warn("{} receiver_loop system_error, what: {}", id(), ex.what());
         throw;
     }
-    catch (const std::exception &error)
+    catch (const std::exception &ex)
     {
-        spdlog::warn("{} receiver_loop exception stopped, what: {}", id(), error.what());
+        spdlog::warn("{} receiver_loop std::exception, what: {}", id(), ex.what());
         throw;
     }
 }
