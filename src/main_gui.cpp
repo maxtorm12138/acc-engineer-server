@@ -14,7 +14,7 @@
 // module
 #include "config.h"
 #include "service.h"
-#include "gui_log_sink.h"
+#include "gui_sink.h"
 
 // ui
 #include "ui/launcher.h"

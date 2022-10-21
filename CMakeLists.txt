@@ -89,8 +89,8 @@ set(ACC_ENGINEER_SERVER_SRCS
 
 set(ACC_ENGINEER_SERVER_GUI_SRCS
         ${ACC_ENGINEER_SERVER_SRCS}
-        src/gui_log_sink.cpp
-        src/gui_log_sink.h
+        src/gui_sink.cpp
+        src/gui_sink.h
         src/ui/launcher.cpp
         src/ui/launcher.h)
 
