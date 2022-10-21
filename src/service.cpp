@@ -228,7 +228,7 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
 
         if (auto stub = id_tcp_stub_[tcp_stub_id].lock(); stub != nullptr)
         {
-            stub->async_call<OnlineNotify>(online_notify_request);
+            auto resp = co_await stub->async_call<OnlineNotify>(online_notify_request);
         }
     }
 
@@ -237,7 +237,7 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
     Authentication::Response response;
     response.set_error_code(0);
     response.set_error_message("success");
-    response.set_driver_id(driver_name_id_[allocated_driver_id]);
+    response.set_driver_id(allocated_driver_id);
     co_return response;
 }
 

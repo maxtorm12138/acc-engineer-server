@@ -66,13 +66,49 @@ config config::from_command_line(int argc, char *argv[])
 {
     po::options_description descriptions("Usage");
 
-    descriptions.add_options()("help,h", "print help")("port,p", po::value<detail::PortType>()->required(), "listen port")("address,a",
-        po::value<detail::AddressType>(), "listen address")("password,P", po::value<std::string>()->required(), "authentication password");
+    descriptions.add_options()("help,h", "print help")("port,p", po::value<detail::PortType>()->required(), "listen port")(
+        "address,a", po::value<detail::AddressType>(), "listen address")("password,P", po::value<std::string>()->required(), "authentication password");
 
     try
     {
         po::variables_map vm;
-        store(parse_command_line(argc, argv, descriptions), vm);
+        po::store(parse_command_line(argc, argv, descriptions), vm);
+
+        if (vm.contains("help"))
+        {
+            std::cerr << descriptions << std::endl;
+            exit(0);
+        }
+
+        notify(vm);
+
+        config cfg;
+
+        cfg.password_ = vm["password"].as<std::string>();
+        cfg.bind_port_ = vm["port"].as<detail::PortType>().port;
+        cfg.bind_address_ = vm["address"].as<detail::AddressType>().address;
+
+        return cfg;
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << std::endl;
+        std::cerr << descriptions << std::endl;
+        exit(-1);
+    }
+}
+
+config config::from_string(const std::string &argv)
+{
+    po::options_description descriptions("Usage");
+
+    descriptions.add_options()("help,h", "print help")("port,p", po::value<detail::PortType>()->required(), "listen port")(
+        "address,a", po::value<detail::AddressType>(), "listen address")("password,P", po::value<std::string>()->required(), "authentication password");
+
+    try
+    {
+        po::variables_map vm;
+        po::store(po::command_line_parser(po::split_unix(argv)).options(descriptions).run(), vm);
 
         if (vm.contains("help"))
         {

@@ -24,6 +24,8 @@ public:
 
     static config from_command_line(int argc, char *argv[]);
 
+    static config from_string(const std::string &argv);
+
 private:
     boost::asio::ip::address bind_address_;
     uint16_t bind_port_{0};
