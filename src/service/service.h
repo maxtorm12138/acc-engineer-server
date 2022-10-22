@@ -11,8 +11,7 @@
 
 // module
 #include "rpc/stub.h"
-#include "rpc/types.h"
-#include "rpc/method_group.h"
+#include "rpc/method.h"
 
 #include "config.h"
 
@@ -21,9 +20,6 @@
 
 namespace acc_engineer {
 namespace net = boost::asio;
-
-using tcp_stub_t = rpc::stream_stub<net::ip::tcp::socket>;
-using udp_stub_t = rpc::datagram_stub<net::ip::udp::socket>;
 
 class service
 {
@@ -43,24 +39,15 @@ private:
 
     net::awaitable<void> new_tcp_connection(net::ip::tcp::socket socket);
 
-    net::awaitable<void> new_udp_connection(net::ip::udp::socket socket, std::string initial);
-
-    void reset_watcher(uint64_t stub_id);
+    net::awaitable<void> new_udp_connection(net::ip::udp::socket socket, std::vector<uint8_t> initial);
 
     config config_;
     bool running_{false};
-    rpc::method_group method_group_;
+    rpc::methods methods_;
 
-    std::unordered_map<uint64_t, std::weak_ptr<tcp_stub_t>> id_tcp_stub_;
-    std::unordered_map<uint64_t, std::weak_ptr<udp_stub_t>> id_udp_stub_;
-    std::unordered_map<net::ip::udp::endpoint, uint64_t> ep_id_udp_;
-    std::unordered_map<uint64_t, std::weak_ptr<net::steady_timer>> stub_watcher_;
-
-    // driver
-    std::unordered_map<std::string, uint64_t> driver_name_id_;
-    std::unordered_map<uint64_t, std::pair<uint64_t, uint64_t>> driver_id_stub_;
-
-    static std::atomic<uint64_t> driver_id_max_;
+    std::unordered_map<uint64_t, std::shared_ptr<rpc::tcp_stub>> conn_id_tcp_;
+    std::unordered_map<uint64_t, std::shared_ptr<rpc::udp_stub>> conn_id_udp_;
+    std::unordered_map<net::ip::udp::endpoint, uint64_t> conn_ep_udp_;
 };
 } // namespace acc_engineer
 

@@ -94,7 +94,7 @@ requires is_method_implement<Message, Implement, context_t> net::awaitable<std::
     context_t context, std::span<uint8_t> request_message_payload)
 {
     request_t<Message> request{};
-    if (!request.ParseFromArray(request_message_payload.data(), request_message_payload.size()))
+    if (!request.ParseFromArray(request_message_payload.data(), static_cast<int>(request_message_payload.size())))
     {
         spdlog::error("method invoke error, parse request fail");
         throw sys::system_error(system_error::proto_parse_fail);
@@ -103,7 +103,7 @@ requires is_method_implement<Message, Implement, context_t> net::awaitable<std::
     response_t<Message> response = co_await std::invoke(implement_, std::cref(context), std::cref(request));
 
     std::vector<uint8_t> response_message_payload(response.ByteSizeLong());
-    if (!response.SerializeToArray(response_message_payload.data(), response_message_payload.size()))
+    if (!response.SerializeToArray(response_message_payload.data(), static_cast<int>(response_message_payload.size())))
     {
         spdlog::error("method invoke error, serialize response fail");
         throw sys::system_error(system_error::proto_serialize_fail);

@@ -53,6 +53,8 @@ public:
 
     explicit stub(method_channel_type method_channel, const methods &methods = methods::empty());
 
+    ~stub();
+
     net::awaitable<void> run();
 
     net::awaitable<void> stop();
@@ -61,6 +63,8 @@ public:
 
     template<is_method_message MethodMessage>
     net::awaitable<response_t<MethodMessage>> async_call(const request_t<MethodMessage> &request);
+
+    uint64_t id() const noexcept;
 
 private:
     net::awaitable<void> input_loop();
@@ -93,7 +97,7 @@ private:
 
 template<typename PacketHandler>
 stub<PacketHandler>::stub(method_channel_type method_channel, const methods &methods)
-    : method_channel_(std::move(method_channel_))
+    : method_channel_(std::move(method_channel))
     , input_channel_(method_channel_.get_executor(), MAX_IO_CHANNEL_BUFFER_SIZE)
     , output_channel_(method_channel_.get_executor(), MAX_IO_CHANNEL_BUFFER_SIZE)
     , status_(stub_status::idle)
@@ -102,8 +106,15 @@ stub<PacketHandler>::stub(method_channel_type method_channel, const methods &met
 {}
 
 template<typename PacketHandler>
+stub<PacketHandler>::~stub()
+{
+    spdlog::debug("~stub {}", id_);
+}
+
+template<typename PacketHandler>
 net::awaitable<void> stub<PacketHandler>::run()
 {
+    status_ = stub_status::running;
     auto executor = co_await net::this_coro::executor;
     auto loop0 = net::co_spawn(executor, input_loop(), net::deferred);
     auto loop1 = net::co_spawn(executor, output_loop(), net::deferred);
@@ -112,6 +123,7 @@ net::awaitable<void> stub<PacketHandler>::run()
     auto run = net::experimental::make_parallel_group(std::move(loop0), std::move(loop1), std::move(loop2));
 
     auto result = co_await run.async_wait(net::experimental::wait_for_one(), net::deferred);
+    status_ = stub_status::stopped;
 }
 
 template<typename PacketHandler>
@@ -188,14 +200,14 @@ net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const 
         throw sys::system_error(system_error::connection_closed);
     }
 
-    if (error_code.category() == system_error_category())
+    if (error_code && error_code.category() == system_error_category())
     {
         throw sys::system_error(error_code);
     }
 
     if (error_code)
     {
-        throw sys::system_error(error_code);
+        throw sys::system_error(system_error::unhandled_system_error);
     }
 
     response_t<MethodMessage> response{};
@@ -208,13 +220,21 @@ net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const 
 }
 
 template<typename PacketHandler>
+uint64_t stub<PacketHandler>::id() const noexcept
+{
+    return id_;
+}
+
+template<typename PacketHandler>
 net::awaitable<void> stub<PacketHandler>::input_loop()
 {
     std::vector<uint8_t> receive_buffer(PacketHandler::MAX_PACKET_SIZE);
+    spdlog::debug("input_loop {} started", id_);
     while (status_ == stub_status::running)
     {
         sys::error_code error_code;
         error_code = co_await PacketHandler::receive_packet(method_channel_, receive_buffer);
+        spdlog::debug("input_loop {} receive_packet {} ", id_, error_code.message());
         if (error_code == system_error::connection_closed)
         {
             throw sys::system_error(error_code);
@@ -222,7 +242,7 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
 
         if (error_code == system_error::operation_canceled)
         {
-            co_return;
+            break;
         }
 
         if (error_code)
@@ -231,6 +251,7 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
         }
 
         co_await input_channel_.async_send({}, receive_buffer, await_error_code(error_code));
+        spdlog::debug("input_loop {} send {} ", id_, error_code.message());
         if (error_code == net::experimental::error::channel_closed)
         {
             throw sys::system_error(system_error::connection_closed);
@@ -238,7 +259,7 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
 
         if (error_code == net::experimental::error::channel_cancelled)
         {
-            co_return;
+            break;
         }
 
         if (error_code)
@@ -246,11 +267,13 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
             throw sys::system_error(system_error::unhandled_system_error);
         }
     }
+    spdlog::debug("input_loop {} ", id_);
 }
 
 template<typename PacketHandler>
 net::awaitable<void> stub<PacketHandler>::output_loop()
 {
+    spdlog::debug("output_loop {} started", id_);
     while (status_ == stub_status::running)
     {
         sys::error_code error_code;
@@ -295,7 +318,6 @@ net::awaitable<void> stub<PacketHandler>::spawn_worker_loop(std::index_sequence<
     auto executor = co_await net::this_coro::executor;
     auto run = net::experimental::make_parallel_group(net::co_spawn(executor, worker_loop<WorkerIds>(), net::deferred)...);
     auto result = co_await run.async_wait(net::experimental::wait_for_all(), net::deferred);
-    co_return;
 }
 
 template<typename PacketHandler>

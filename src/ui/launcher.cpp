@@ -32,6 +32,9 @@ void launcher::on_ServerButton_clicked()
     ui_->AddressLineEdit->setEnabled(false);
     ui_->PortLineEdit->setEnabled(false);
     ui_->PasswordLineEdit->setEnabled(false);
+    ui_->LogLevelComboBox->setEnabled(false);
+    auto level = ui_->LogLevelComboBox->currentText();
+    spdlog::set_level(spdlog::level::from_str(level.toStdString()));
 
     auto address = ui_->AddressLineEdit->text();
     auto port = ui_->PortLineEdit->text().toUInt();
@@ -43,7 +46,9 @@ void launcher::on_ServerButton_clicked()
 
 void launcher::on_new_log(QString log)
 {
-    ui_->LogTextEdit->append(log);
+    ui_->LogTextEdit->moveCursor(QTextCursor::End);
+    ui_->LogTextEdit->insertHtml(log);
+    ui_->LogTextEdit->moveCursor(QTextCursor::End);
 }
 
 } // namespace acc_engineer::ui

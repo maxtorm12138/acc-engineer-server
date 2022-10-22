@@ -12,6 +12,7 @@ net::awaitable<void> client_udp(int argc, char *argv[])
 {
     co_return;
 }
+
 net::awaitable<void> client_tcp(int argc, char *argv[])
 {
     auto executor = co_await net::this_coro::executor;
@@ -20,7 +21,8 @@ net::awaitable<void> client_tcp(int argc, char *argv[])
     co_await socket.async_connect(ep, net::use_awaitable);
 
     rpc::tcp_stub stub(std::move(socket));
-    net::co_spawn(executor, stub.run(), net::detached);
+    net::co_spawn(
+        executor, [&]() -> net::awaitable<void> { co_await stub.run(); }, net::detached);
 
     for (;;)
     {
@@ -49,14 +51,18 @@ int main(int argc, char *argv[])
     spdlog::set_level(spdlog::level::debug);
     net::io_context io_context;
     using namespace std::string_literals;
-    if (argv[1] == "udp"s)
+    if (argv[1] == "client"s)
     {
-        net::co_spawn(io_context, client_udp(argc, argv), net::detached);
+        if (argv[2] == "udp"s)
+        {
+            net::co_spawn(io_context, client_udp(argc, argv), net::detached);
+        }
+        else if (argv[2] == "tcp"s)
+        {
+            net::co_spawn(io_context, client_tcp(argc, argv), net::detached);
+        }
     }
-    else if (argv[1] == "tcp"s)
-    {
-        net::co_spawn(io_context, client_tcp(argc, argv), net::detached);
-    }
+    else if (argv[1] == "server"s) {}
 
     io_context.run();
     return 0;

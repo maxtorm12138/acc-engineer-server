@@ -33,6 +33,7 @@ public:
 private:
     std::mutex mutex_;
     std::unique_ptr<spdlog::formatter> formatter_;
+    std::array<std::string_view, spdlog::level::n_levels> colors_;
 };
 
 class gui_sink_helper : public QObject

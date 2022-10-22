@@ -3,10 +3,17 @@
 #include <spdlog/pattern_formatter.h>
 
 namespace acc_engineer {
+
 gui_sink::gui_sink()
     : mutex_()
-    , formatter_(std::make_unique<spdlog::pattern_formatter>())
-{}
+    , formatter_(std::make_unique<spdlog::pattern_formatter>("%+", spdlog::pattern_time_type::local, ""))
+{
+    colors_[SPDLOG_LEVEL_TRACE] = "white";
+    colors_[SPDLOG_LEVEL_DEBUG] = "cyan";
+    colors_[SPDLOG_LEVEL_INFO] = "green";
+    colors_[SPDLOG_LEVEL_WARN] = "yellow";
+    colors_[SPDLOG_LEVEL_ERROR] = "red";
+}
 
 void gui_sink::log(const spdlog::details::log_msg &msg)
 {
@@ -18,25 +25,31 @@ void gui_sink::log(const spdlog::details::log_msg &msg)
     formatter_->format(msg, formatted);
     std::string content;
     auto current = formatted.begin();
+    content.append("<font color=white>");
     content.append(current, msg.color_range_start);
     current += msg.color_range_start;
+    content.append("</font>");
 
+    content.append(fmt::format("<font color={}>", colors_[msg.level]));
     content.append(current, msg.color_range_end - msg.color_range_start);
+    content.append("</font>");
+
     current += msg.color_range_end - msg.color_range_start;
 
+    content.append("<font color=white>");
     content.append(current, formatted.size() - msg.color_range_end);
-
-    helper.log(QString::fromStdString(content));
+    content.append("</font><br>");
+    helper.log(QString::fromLocal8Bit(content.c_str(), content.size()));
 }
 
-void acc_engineer::gui_sink::flush() {}
+void gui_sink::flush() {}
 
-void acc_engineer::gui_sink::set_pattern(const std::string &pattern)
+void gui_sink::set_pattern(const std::string &pattern)
 {
     formatter_ = std::make_unique<spdlog::pattern_formatter>(pattern);
 }
 
-void acc_engineer::gui_sink::set_formatter(std::unique_ptr<spdlog::formatter> sink_formatter)
+void gui_sink::set_formatter(std::unique_ptr<spdlog::formatter> sink_formatter)
 {
     formatter_ = std::move(sink_formatter);
 }

@@ -15,7 +15,7 @@ net::awaitable<void> co_main(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-    spdlog::set_level(spdlog::level::info);
+    spdlog::set_level(spdlog::level::debug);
 
     std::set_terminate([]() {
         spdlog::error("unhandled exception occurred");

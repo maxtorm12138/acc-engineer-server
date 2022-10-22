@@ -60,7 +60,18 @@ public:
 
     boost::system::error_condition default_error_condition(int code) const noexcept final
     {
-        return {code, *this};
+        switch (static_cast<system_error>(code))
+        {
+        case system_error::success:
+            return {};
+        default:
+            return {code, *this};
+        }
+    }
+
+    bool failed(int ev) const noexcept override
+    {
+        return static_cast<system_error>(ev) != system_error::success;
     }
 };
 

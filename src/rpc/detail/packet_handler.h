@@ -92,6 +92,54 @@ struct udp_packet_handler
 {
     static constexpr size_t MAX_PACKET_SIZE = 1500;
     using method_channel_type = net::ip::udp::socket;
+    static constexpr uint64_t type = 2;
+
+    static net::awaitable<sys::error_code> receive_packet(method_channel_type &chan, std::vector<uint8_t> &receive_buffer) noexcept
+    {
+        sys::error_code error_code;
+        receive_buffer.resize(MAX_PACKET_SIZE);
+        size_t packet_size = co_await chan.async_receive(net::buffer(receive_buffer), await_error_code(error_code));
+        if (error_code == net::error::operation_aborted)
+        {
+            co_return system_error::operation_canceled;
+        }
+
+        if (error_code == net::error::eof)
+        {
+            co_return system_error::connection_closed;
+        }
+
+        if (error_code)
+        {
+            co_return error_code;
+        }
+
+        receive_buffer.resize(packet_size);
+        co_return system_error::success;
+    }
+
+    static net::awaitable<sys::error_code> send_packet(method_channel_type &chan, std::vector<uint8_t> send_buffer) noexcept
+    {
+        sys::error_code error_code;
+        co_await chan.async_send(net::buffer(send_buffer), await_error_code(error_code));
+
+        if (error_code == net::error::operation_aborted)
+        {
+            co_return system_error::operation_canceled;
+        }
+
+        if (error_code == net::error::broken_pipe || error_code == net::error::eof)
+        {
+            co_return system_error::connection_closed;
+        }
+
+        if (error_code)
+        {
+            co_return error_code;
+        }
+
+        co_return system_error::success;
+    }
 };
 
 } // namespace acc_engineer::rpc::detail
