@@ -12,11 +12,10 @@
 #include <spdlog/sinks/basic_file_sink.h>
 
 // module
-#include "config.h"
-#include "service.h"
-#include "gui_sink.h"
+#include "service/config.h"
+#include "service/service.h"
 
-// ui
+#include "ui/gui_sink.h"
 #include "ui/launcher.h"
 
 namespace net = boost::asio;
@@ -54,14 +53,14 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
 
-    auto real_sink = std::make_shared<real_gui_sink>();
+    auto gui_logger = spdlog::synchronous_factory::create<acc_engineer::gui_sink>("GUI");
 
     spdlog::set_level(spdlog::level::debug);
-    spdlog::set_default_logger(spdlog::synchronous_factory::create<gui_log_sink_mt>("gui_log_sink", real_sink));
+    spdlog::set_default_logger(gui_logger);
 
     acc_engineer::ui::launcher launcher;
     QObject::connect(&launcher, &acc_engineer::ui::launcher::start_server, start_service);
-    QObject::connect(real_sink.get(), &real_gui_sink::gui_log_sink_it, &launcher, &acc_engineer::ui::launcher::on_Log_sink_it);
+    QObject::connect(&acc_engineer::helper, &acc_engineer::gui_sink_helper::on_new_log, &launcher, &acc_engineer::ui::launcher::on_new_log);
 
     launcher.show();
     return app.exec();

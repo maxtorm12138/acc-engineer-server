@@ -6,7 +6,7 @@
 #include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
-#include "rpc/await_ec.h"
+#include "rpc/await_error_code.h"
 #include "proto/service.pb.h"
 
 namespace acc_engineer {

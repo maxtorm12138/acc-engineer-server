@@ -10,7 +10,9 @@ function(ADD_ACC_ENGINEER_TEST)
 
     if (MSVC)
         target_compile_definitions(${ACC_ENGINEER_TEST_NAME} PRIVATE _WIN32_WINNT=0x0A00)
+        target_compile_options(${ACC_ENGINEER_TEST_NAME} PRIVATE /bigobj)
     endif ()
 endfunction()
 
 ADD_ACC_ENGINEER_TEST(NAME test_rpc FILES test_rpc.cpp ${SERVICE_PROTO_FILES})
+ADD_ACC_ENGINEER_TEST(NAME test_dynamic_parallel_group FILES test_dynamic_parallel_group.cpp ${SERVICE_PROTO_FILES})

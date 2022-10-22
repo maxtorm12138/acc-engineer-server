@@ -41,9 +41,9 @@ void launcher::on_ServerButton_clicked()
     emit start_server(address, port, password);
 }
 
-void launcher::on_Log_sink_it(std::string str)
+void launcher::on_new_log(QString log)
 {
-    ui_->LogTextEdit->append(QString::fromStdString(str));
+    ui_->LogTextEdit->append(log);
 }
 
 } // namespace acc_engineer::ui

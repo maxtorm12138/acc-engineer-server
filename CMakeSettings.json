@@ -7,7 +7,7 @@
       "inheritEnvironments": [ "msvc_x64_x64" ],
       "buildRoot": "${projectDir}\\out\\build\\${name}",
       "installRoot": "${projectDir}\\out\\install\\${name}",
-      "cmakeCommandArgs": "-DBOOST_ROOT=E:\\Library_Debug -DQt6_DIR=C:\\Qt\\6.4.0\\msvc2019_64\\lib\\cmake\\Qt6 -DCMAKE_PREFIX_PATH=E:\\Library_Debug",
+      "cmakeCommandArgs": "-DBOOST_ROOT=E:\\Library_Debug -DCMAKE_PREFIX_PATH=E:\\Library_Debug;C:\\Qt\\6.4.0\\msvc2019_64 -DACC_ENGINEER_SERVER_BUILD_GUI=1 -DACC_ENGINEER_SERVER_BUILD_TESTS=1",
       "buildCommandArgs": "",
       "ctestCommandArgs": ""
     },
@@ -17,7 +17,7 @@
       "configurationType": "Release",
       "buildRoot": "${projectDir}\\out\\build\\${name}",
       "installRoot": "${projectDir}\\out\\install\\${name}",
-      "cmakeCommandArgs": "-DBOOST_ROOT=E:\\Library_Release -DQt6_DIR=C:\\Qt\\6.4.0\\msvc2019_64\\lib\\cmake\\Qt6 -DCMAKE_PREFIX_PATH=E:\\Library_Debug",
+      "cmakeCommandArgs": "-DBOOST_ROOT=E:\\Library_Release -DCMAKE_PREFIX_PATH=E:\\Library_Release;C:\\Qt\\6.4.0\\msvc2019_64 -DACC_ENGINEER_SERVER_BUILD_GUI=1 -DACC_ENGINEER_SERVER_BUILD_TESTS=1",
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ]

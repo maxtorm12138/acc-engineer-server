@@ -16,6 +16,8 @@ enum class system_error
     data_corrupted = 5,
     operation_timeout = 6,
     connection_closed = 7,
+    operation_canceled = 8,
+    unhandled_system_error = 9
 };
 
 // ReSharper disable once CppPolymorphicClassWithNonVirtualPublicDestructor
@@ -47,6 +49,10 @@ public:
             return "operation timeout";
         case system_error::connection_closed:
             return "connection closed";
+        case system_error::operation_canceled:
+            return "operation canceled";
+        case system_error::unhandled_system_error:
+            return "unhandled system error";
         default:
             return "unknown";
         }

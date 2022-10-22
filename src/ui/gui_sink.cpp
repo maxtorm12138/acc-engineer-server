@@ -8,9 +8,9 @@ gui_sink::gui_sink()
     , formatter_(std::make_unique<spdlog::pattern_formatter>())
 {}
 
-void acc_engineer::gui_sink::log(const spdlog::details::log_msg &msg)
+void gui_sink::log(const spdlog::details::log_msg &msg)
 {
-    std::lock_guard<std::mutex> guard(mutex_);
+    std::lock_guard guard(mutex_);
 
     msg.color_range_start = 0;
     msg.color_range_end = 0;
@@ -24,19 +24,23 @@ void acc_engineer::gui_sink::log(const spdlog::details::log_msg &msg)
     content.append(current, msg.color_range_end - msg.color_range_start);
     current += msg.color_range_end - msg.color_range_start;
 
-    content.append(formatted.data() + msg.color_range_end);
+    content.append(current, formatted.size() - msg.color_range_end);
+
+    helper.log(QString::fromStdString(content));
 }
 
 void acc_engineer::gui_sink::flush() {}
 
 void acc_engineer::gui_sink::set_pattern(const std::string &pattern)
 {
-    formatter_ = std::unique_ptr<spdlog::formatter>(new spdlog::pattern_formatter(pattern));
+    formatter_ = std::make_unique<spdlog::pattern_formatter>(pattern);
 }
 
 void acc_engineer::gui_sink::set_formatter(std::unique_ptr<spdlog::formatter> sink_formatter)
 {
     formatter_ = std::move(sink_formatter);
 }
+
+gui_sink_helper helper;
 
 } // namespace acc_engineer
