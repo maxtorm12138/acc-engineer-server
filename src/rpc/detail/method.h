@@ -40,19 +40,19 @@ concept is_method_implement = requires(MethodImplement implement, const typename
         } -> std::same_as<net::awaitable<typename MethodMessage::Response>>;
 };
 
-template<is_method_message message>
+template<is_method_message Message>
 struct request
 {
-    using type = typename message::request;
+    using type = typename Message::Request;
 };
 
-template<is_method_message message>
-using request_t = typename request<message>::type;
+template<is_method_message Message>
+using request_t = typename request<Message>::type;
 
-template<is_method_message message>
+template<is_method_message Message>
 struct response
 {
-    using type = typename message::response;
+    using type = typename Message::Response;
 };
 
 struct context_t

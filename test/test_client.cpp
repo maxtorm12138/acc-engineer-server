@@ -13,8 +13,6 @@ net::awaitable<void> co_main(int argc, char *argv[])
     net::ip::tcp::socket tcp_socket(executor, {config.address(), config.port()});
     net::ip::udp::socket udp_socket(executor);
     co_await udp_socket.async_connect({config.address(), config.port()}, net::use_awaitable);
-
-
 }
 
 int main(int argc, char *argv[])

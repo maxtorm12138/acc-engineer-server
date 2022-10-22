@@ -18,6 +18,7 @@ struct tcp_packet_handler
 {
     static constexpr size_t MAX_PACKET_SIZE = 1500;
     using method_channel_type = net::ip::tcp::socket;
+    static constexpr uint64_t type = 1;
 
     static net::awaitable<sys::error_code> receive_packet(method_channel_type &chan, std::vector<uint8_t> &receive_buffer) noexcept
     {

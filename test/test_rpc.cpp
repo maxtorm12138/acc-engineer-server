@@ -8,7 +8,10 @@
 namespace net = boost::asio;
 using namespace acc_engineer;
 
-net::awaitable<void> client_udp(int argc, char *argv[]) {}
+net::awaitable<void> client_udp(int argc, char *argv[])
+{
+    co_return;
+}
 net::awaitable<void> client_tcp(int argc, char *argv[])
 {
     auto executor = co_await net::this_coro::executor;
