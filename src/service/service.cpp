@@ -80,15 +80,22 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
     auto remote_endpoint = socket.remote_endpoint();
     using namespace std::chrono_literals;
 
+    spdlog::info("{} tcp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
         auto new_tcp_stub = std::make_shared<rpc::tcp_stub>(std::move(socket), methods_);
         stub_id = new_tcp_stub->id();
         conn_id_tcp_.emplace(stub_id, std::move(new_tcp_stub));
+        BOOST_SCOPE_EXIT_ALL(&)
+        {
+            conn_id_tcp_.erase(stub_id);
+        };
         co_await conn_id_tcp_[stub_id]->run();
     }
     catch (sys::system_error &ex)
-    {}
+    {
+        spdlog::error("{} tcp run exception: {}", stub_id, ex.what());
+    }
     spdlog::info("{} tcp disconnected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
 }
 
@@ -98,17 +105,24 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
     auto remote_endpoint = socket.remote_endpoint();
     using namespace std::chrono_literals;
 
+    spdlog::info("{} udp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
         auto new_udp_stub = std::make_shared<rpc::udp_stub>(std::move(socket), methods_);
         stub_id = new_udp_stub->id();
         conn_id_udp_.emplace(stub_id, std::move(new_udp_stub));
+        BOOST_SCOPE_EXIT_ALL(&)
+        {
+            conn_id_udp_.erase(stub_id);
+        };
 
         co_await conn_id_udp_[stub_id]->deliver(std::move(initial));
         co_await conn_id_udp_[stub_id]->run();
     }
     catch (sys::system_error &ex)
-    {}
+    {
+        spdlog::error("{} udp run exception: {}", stub_id, ex.what());
+    }
     spdlog::info("{} udp disconnected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
 }
 

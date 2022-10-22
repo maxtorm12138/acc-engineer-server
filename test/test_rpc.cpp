@@ -10,7 +10,35 @@ using namespace acc_engineer;
 
 net::awaitable<void> client_udp(int argc, char *argv[])
 {
-    co_return;
+    auto executor = co_await net::this_coro::executor;
+    net::ip::udp::socket socket(executor);
+    net::ip::udp::endpoint ep{net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))};
+    co_await socket.async_connect(ep, net::use_awaitable);
+
+    rpc::udp_stub stub(std::move(socket));
+    net::co_spawn(
+        executor, [&]() -> net::awaitable<void> { co_await stub.run(); }, net::detached);
+
+    for (;;)
+    {
+        try
+        {
+            using namespace std::chrono_literals;
+            Echo::Request request;
+            std::getline(std::cin, *request.mutable_message());
+
+            auto result = co_await stub.async_call<Echo>(request);
+            std::cerr << "Response: " << result.ShortDebugString() << std::endl;
+        }
+        catch (boost::system::system_error &e)
+        {
+            std::cerr << "System error: " << e.what() << std::endl;
+        }
+        catch (std::exception &e)
+        {
+            std::cerr << "exception: " << e.what() << std::endl;
+        }
+    }
 }
 
 net::awaitable<void> client_tcp(int argc, char *argv[])

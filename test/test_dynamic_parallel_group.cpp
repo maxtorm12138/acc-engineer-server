@@ -62,7 +62,7 @@ net::awaitable<void> co_main()
 
 int main(int argc, char *argv)
 {
-    srand(time(nullptr));
+    srand(static_cast<unsigned>(time(nullptr)));
     net::io_context context;
     net::co_spawn(context, co_main(), net::detached);
     context.run();

@@ -234,7 +234,7 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
     {
         sys::error_code error_code;
         error_code = co_await PacketHandler::receive_packet(method_channel_, receive_buffer);
-        spdlog::debug("input_loop {} receive_packet {} ", id_, error_code.message());
+        spdlog::debug("input_loop {} receive_packet: {} ", id_, error_code.message());
         if (error_code == system_error::connection_closed)
         {
             throw sys::system_error(error_code);
@@ -251,7 +251,7 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
         }
 
         co_await input_channel_.async_send({}, receive_buffer, await_error_code(error_code));
-        spdlog::debug("input_loop {} send {} ", id_, error_code.message());
+        spdlog::debug("input_loop {} send : {} ", id_, error_code.message());
         if (error_code == net::experimental::error::channel_closed)
         {
             throw sys::system_error(system_error::connection_closed);
@@ -267,7 +267,7 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
             throw sys::system_error(system_error::unhandled_system_error);
         }
     }
-    spdlog::debug("input_loop {} ", id_);
+    spdlog::debug("input_loop {} stopped", id_);
 }
 
 template<typename PacketHandler>
@@ -278,6 +278,7 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
     {
         sys::error_code error_code;
         std::vector<uint8_t> send_buffer = co_await output_channel_.async_receive(await_error_code(error_code));
+        spdlog::debug("output_loop {} receive: {} ", id_, error_code.message());
         if (error_code == net::experimental::error::channel_closed)
         {
             throw sys::system_error(system_error::connection_closed);
@@ -285,7 +286,7 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
 
         if (error_code == net::experimental::error::channel_cancelled)
         {
-            co_return;
+            break;
         }
 
         if (error_code)
@@ -294,6 +295,7 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
         }
 
         error_code = co_await PacketHandler::send_packet(method_channel_, std::move(send_buffer));
+        spdlog::debug("output_loop {} send_packet: {} ", id_, error_code.message());
         if (error_code == system_error::connection_closed)
         {
             throw sys::system_error(error_code);
@@ -301,7 +303,7 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
 
         if (error_code == system_error::operation_canceled)
         {
-            co_return;
+            break;
         }
 
         if (error_code)
@@ -309,6 +311,7 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
             throw sys::system_error(system_error::unhandled_system_error);
         }
     }
+    spdlog::debug("output_loop {} stopped", id_);
 }
 
 template<typename PacketHandler>
@@ -324,10 +327,12 @@ template<typename PacketHandler>
 template<size_t WorkerId>
 net::awaitable<void> stub<PacketHandler>::worker_loop()
 {
+    spdlog::debug("worker_loop {} {} started", id_, WorkerId);
     while (status_ == stub_status::running)
     {
         sys::error_code error_code;
         std::vector<uint8_t> receive_buffer = co_await input_channel_.async_receive(await_error_code(error_code));
+        spdlog::debug("worker_loop {} {} receive: {}", id_, WorkerId, error_code.message());
         if (error_code == net::experimental::error::channel_closed)
         {
             throw sys::system_error(system_error::connection_closed);
@@ -335,7 +340,7 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
 
         if (error_code == net::experimental::error::channel_cancelled)
         {
-            co_return;
+            break;
         }
 
         if (error_code)
@@ -382,7 +387,7 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
 
             if (error_code == net::experimental::error::channel_cancelled)
             {
-                co_return;
+                break;
             }
 
             if (error_code)
@@ -400,7 +405,7 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
 
             if (error_code == net::experimental::error::channel_cancelled)
             {
-                co_return;
+                break;
             }
 
             if (error_code)
@@ -410,6 +415,7 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
         }
         else {}
     }
+    spdlog::debug("worker_loop {} {} stopped", id_, WorkerId);
 }
 
 template<typename PacketHandler>
