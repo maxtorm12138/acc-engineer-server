@@ -15,9 +15,9 @@ net::awaitable<void> client_udp(int argc, char *argv[])
     net::ip::udp::endpoint ep{net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))};
     co_await socket.async_connect(ep, net::use_awaitable);
 
-    rpc::udp_stub stub(std::move(socket));
+    auto stub = rpc::udp_stub::create(std::move(socket));
     net::co_spawn(
-        executor, [&]() -> net::awaitable<void> { co_await stub.run(); }, net::detached);
+        executor, [=]() -> net::awaitable<void> { co_await stub->run(); }, net::detached);
 
     for (;;)
     {
@@ -27,7 +27,7 @@ net::awaitable<void> client_udp(int argc, char *argv[])
             Echo::Request request;
             std::getline(std::cin, *request.mutable_message());
 
-            auto result = co_await stub.async_call<Echo>(request);
+            auto result = co_await stub->async_call<Echo>(request);
             std::cerr << "Response: " << result.ShortDebugString() << std::endl;
         }
         catch (boost::system::system_error &e)
@@ -48,9 +48,9 @@ net::awaitable<void> client_tcp(int argc, char *argv[])
     net::ip::tcp::endpoint ep{net::ip::make_address(argv[3]), static_cast<net::ip::port_type>(std::stoi(argv[4]))};
     co_await socket.async_connect(ep, net::use_awaitable);
 
-    rpc::tcp_stub stub(std::move(socket));
+    auto stub = rpc::tcp_stub::create(std::move(socket));
     net::co_spawn(
-        executor, [&]() -> net::awaitable<void> { co_await stub.run(); }, net::detached);
+        executor, [=]() -> net::awaitable<void> { co_await stub->run(); }, net::detached);
 
     for (;;)
     {
@@ -60,7 +60,7 @@ net::awaitable<void> client_tcp(int argc, char *argv[])
             Echo::Request request;
             std::getline(std::cin, *request.mutable_message());
 
-            auto result = co_await stub.async_call<Echo>(request);
+            auto result = co_await stub->async_call<Echo>(request);
             std::cerr << "Response: " << result.ShortDebugString() << std::endl;
         }
         catch (boost::system::system_error &e)

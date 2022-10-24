@@ -43,7 +43,7 @@ constexpr size_t MAX_IO_CHANNEL_BUFFER_SIZE = 100;
 constexpr size_t MAX_WORKER_SIZE = 10;
 
 template<typename PacketHandler>
-class stub
+class stub : public std::enable_shared_from_this<stub<PacketHandler>>, public boost::noncopyable
 {
 public:
     using method_channel_type = typename PacketHandler::method_channel_type;
@@ -51,7 +51,7 @@ public:
     using output_channel_type = net::experimental::channel<void(sys::error_code, std::vector<uint8_t>)>;
     using calling_channel_type = net::experimental::channel<void(sys::error_code, std::vector<uint8_t>)>;
 
-    explicit stub(method_channel_type method_channel, const methods &methods = methods::empty());
+    static std::shared_ptr<stub<PacketHandler>> create(method_channel_type method_channel, const methods &methods = methods::empty());
 
     ~stub();
 
@@ -67,6 +67,8 @@ public:
     uint64_t id() const noexcept;
 
 private:
+    explicit stub(method_channel_type method_channel, const methods &methods = methods::empty());
+
     net::awaitable<void> input_loop();
 
     net::awaitable<void> output_loop();
@@ -96,6 +98,12 @@ private:
     static std::atomic<uint64_t> stub_id_max_;
     static std::atomic<uint64_t> trace_id_max_;
 };
+
+template<typename PacketHandler>
+std::shared_ptr<stub<PacketHandler>> stub<PacketHandler>::create(typename stub<PacketHandler>::method_channel_type method_channel, const methods &methods)
+{
+    return std::shared_ptr<stub<PacketHandler>>(new stub<PacketHandler>(std::move(method_channel), methods));
+}
 
 template<typename PacketHandler>
 stub<PacketHandler>::stub(method_channel_type method_channel, const methods &methods)

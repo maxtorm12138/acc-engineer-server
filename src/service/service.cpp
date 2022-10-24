@@ -83,7 +83,7 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
     spdlog::info("{} tcp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
-        auto new_tcp_stub = std::make_shared<rpc::tcp_stub>(std::move(socket), methods_);
+        auto new_tcp_stub = rpc::tcp_stub::create(std::move(socket), methods_);
         stub_id = new_tcp_stub->id();
         conn_id_tcp_.emplace(stub_id, std::move(new_tcp_stub));
         BOOST_SCOPE_EXIT_ALL(&)
@@ -108,7 +108,7 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
     spdlog::info("{} udp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
-        auto new_udp_stub = std::make_shared<rpc::udp_stub>(std::move(socket), methods_);
+        auto new_udp_stub = rpc::udp_stub::create(std::move(socket), methods_);
         stub_id = new_udp_stub->id();
         conn_id_udp_.emplace(stub_id, std::move(new_udp_stub));
         BOOST_SCOPE_EXIT_ALL(&)
