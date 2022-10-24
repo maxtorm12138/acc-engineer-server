@@ -170,7 +170,6 @@ template<is_method_message MethodMessage>
 net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const request_t<MethodMessage> &request)
 {
     uint64_t command_id = MethodMessage::descriptor()->options().GetExtension(rpc::cmd_id);
-    SPDLOG_DEBUG("async_call {} method: {} request: {}", id_, command_id, request.ShortDebugString());
 
     bool no_reply = MethodMessage::descriptor()->options().GetExtension(rpc::no_reply);
     uint64_t trace_id = trace_id_max_++;
@@ -180,6 +179,8 @@ net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const 
     rpc::Cookie cookie;
     cookie.set_trace_id(trace_id);
     cookie.set_error_code(0);
+
+    SPDLOG_DEBUG("async_call {} method: {} trace_id: {} request: {}", id_, command_id, trace_id, request.ShortDebugString());
 
     auto packet = pack(command_id, flags, std::move(cookie), request);
 
