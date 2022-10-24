@@ -22,7 +22,7 @@ signals:
     void start_server(QString, uint, QString);
 
 public slots:
-    void on_new_log(QString log);
+    void handle_new_log(QString log);
 
 private slots:
     void on_ServerButton_clicked();

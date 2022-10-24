@@ -44,7 +44,7 @@ void launcher::on_ServerButton_clicked()
     emit start_server(address, port, password);
 }
 
-void launcher::on_new_log(QString log)
+void launcher::handle_new_log(QString log)
 {
     ui_->LogTextEdit->moveCursor(QTextCursor::End);
     ui_->LogTextEdit->insertHtml(log);

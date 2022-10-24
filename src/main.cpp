@@ -17,17 +17,23 @@ int main(int argc, char *argv[])
 {
     spdlog::set_level(spdlog::level::debug);
 
-    std::set_terminate([]() {
-        spdlog::error("unhandled exception occurred");
-        std::abort();
-    });
-
     net::io_context io_context;
 
-    co_spawn(io_context, co_main(argc, argv), [](const std::exception_ptr &exception_ptr) {
-        if (exception_ptr != nullptr)
+    net::co_spawn(io_context, co_main(argc, argv), [](const std::exception_ptr &exception_ptr) {
+        try
         {
-            std::rethrow_exception(exception_ptr);
+            if (exception_ptr != nullptr)
+            {
+                std::rethrow_exception(exception_ptr);
+            }
+        }
+        catch(const std::exception & ex)
+        {
+            SPDLOG_ERROR("co_main exception: {}", ex.what());
+        }
+        catch (...)
+        {
+            SPDLOG_CRITICAL("co_main unkwown exception");
         }
     });
 

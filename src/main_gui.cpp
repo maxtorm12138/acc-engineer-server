@@ -32,9 +32,20 @@ int service_main(std::string args)
     net::io_context io_context;
 
     co_spawn(io_context, co_service_main(std::move(args)), [](const std::exception_ptr &exception_ptr) {
-        if (exception_ptr != nullptr)
+        try
         {
-            std::rethrow_exception(exception_ptr);
+            if (exception_ptr != nullptr)
+            {
+                std::rethrow_exception(exception_ptr);
+            }
+        }
+        catch (const std::exception &ex)
+        {
+            SPDLOG_ERROR("service_main exception: {}", ex.what());
+        }
+        catch (...)
+        {
+            SPDLOG_CRITICAL("service_main unknown exception");
         }
     });
 
@@ -53,15 +64,14 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
 
-    auto gui_logger = spdlog::synchronous_factory::create<acc_engineer::gui_sink>("GUI");
-
+    auto gui_logger = spdlog::synchronous_factory::create<acc_engineer::ui::gui_sink>("GUI");
     spdlog::set_level(spdlog::level::debug);
     spdlog::set_default_logger(gui_logger);
 
-    acc_engineer::ui::launcher launcher;
-    QObject::connect(&launcher, &acc_engineer::ui::launcher::start_server, start_service);
-    QObject::connect(&acc_engineer::helper, &acc_engineer::gui_sink_helper::on_new_log, &launcher, &acc_engineer::ui::launcher::on_new_log);
+    auto launcher = new acc_engineer::ui::launcher;
+    QObject::connect(launcher, &acc_engineer::ui::launcher::start_server, start_service);
+    QObject::connect(&acc_engineer::ui::gui_sink_emitter, &acc_engineer::ui::gui_sink_emitter::new_log, launcher, &acc_engineer::ui::launcher::handle_new_log);
 
-    launcher.show();
+    launcher->show();
     return app.exec();
 }

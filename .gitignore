@@ -36,3 +36,5 @@ build
 .idea
 out
 .vs
+.cache
+.vscode

@@ -2,7 +2,12 @@
 
 #include <spdlog/pattern_formatter.h>
 
-namespace acc_engineer {
+namespace acc_engineer::ui {
+
+void gui_sink_emitter::log(QString log)
+{
+    emit new_log(log);
+}
 
 gui_sink::gui_sink()
     : mutex_()
@@ -21,8 +26,10 @@ void gui_sink::log(const spdlog::details::log_msg &msg)
 
     msg.color_range_start = 0;
     msg.color_range_end = 0;
+
     spdlog::memory_buf_t formatted;
     formatter_->format(msg, formatted);
+
     std::string content;
     auto current = formatted.begin();
     content.append("<font color=white>");
@@ -39,7 +46,7 @@ void gui_sink::log(const spdlog::details::log_msg &msg)
     content.append("<font color=white>");
     content.append(current, formatted.size() - msg.color_range_end);
     content.append("</font><br>");
-    helper.log(QString::fromLocal8Bit(content.c_str(), content.size()));
+    gui_sink_emitter.log(QString::fromLocal8Bit(content.c_str(), content.size()));
 }
 
 void gui_sink::flush() {}
@@ -54,6 +61,6 @@ void gui_sink::set_formatter(std::unique_ptr<spdlog::formatter> sink_formatter)
     formatter_ = std::move(sink_formatter);
 }
 
-gui_sink_helper helper;
+class gui_sink_emitter gui_sink_emitter;
 
-} // namespace acc_engineer
+} // namespace acc_engineer::ui

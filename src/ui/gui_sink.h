@@ -13,7 +13,17 @@
 // boost
 #include <boost/noncopyable.hpp>
 
-namespace acc_engineer {
+namespace acc_engineer::ui {
+
+class gui_sink_emitter : public QObject
+{
+    Q_OBJECT
+public:
+    void log(QString log);
+
+signals:
+    void new_log(QString log);
+};
 
 class gui_sink : public spdlog::sinks::sink
 {
@@ -36,20 +46,7 @@ private:
     std::array<std::string_view, spdlog::level::n_levels> colors_;
 };
 
-class gui_sink_helper : public QObject
-{
-    Q_OBJECT
-public:
-    void log(QString log)
-    {
-        emit on_new_log(log);
-    }
+extern gui_sink_emitter gui_sink_emitter;
 
-signals:
-    void on_new_log(QString log);
-};
-
-extern gui_sink_helper helper;
-
-} // namespace acc_engineer
+} // namespace acc_engineer::ui
 #endif // ACC_ENGINEER_SERVER_GUI_SINK_H

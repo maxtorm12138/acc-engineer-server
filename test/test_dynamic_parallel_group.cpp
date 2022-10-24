@@ -60,7 +60,7 @@ net::awaitable<void> co_main()
     else {}
 }
 
-int main(int argc, char *argv)
+int main(int argc, char *argv[])
 {
     srand(static_cast<unsigned>(time(nullptr)));
     net::io_context context;
