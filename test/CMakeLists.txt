@@ -8,6 +8,10 @@ function(ADD_ACC_ENGINEER_TEST)
     target_link_libraries(${ACC_ENGINEER_TEST_NAME} PRIVATE protobuf::libprotobuf)
     target_link_libraries(${ACC_ENGINEER_TEST_NAME} PRIVATE spdlog::spdlog)
 
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+        target_compile_definitions(${ACC_ENGINEER_TEST_NAME} PRIVATE SPDLOG_ACTIVE_LEVEL=0)
+    endif ()
+
     if (MSVC)
         target_compile_definitions(${ACC_ENGINEER_TEST_NAME} PRIVATE _WIN32_WINNT=0x0A00)
         target_compile_options(${ACC_ENGINEER_TEST_NAME} PRIVATE /bigobj)

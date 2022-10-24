@@ -57,6 +57,9 @@ target_link_libraries(acc-engineer-server-rpc PUBLIC spdlog::spdlog)
 target_include_directories(acc-engineer-server-rpc PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(acc-engineer-server-rpc PRIVATE src/)
 target_compile_definitions(acc-engineer-server-rpc PRIVATE BOOST_ASIO_NO_DEPRECATED)
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    target_compile_definitions(acc-engineer-server-rpc PRIVATE SPDLOG_ACTIVE_LEVEL=0)
+endif ()
 
 if (WIN32)
     target_compile_definitions(acc-engineer-server-rpc PRIVATE _WIN32_WINNT=0x0A00)
@@ -78,6 +81,9 @@ target_link_libraries(acc-engineer-server spdlog::spdlog)
 target_include_directories(acc-engineer-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(acc-engineer-server PRIVATE src/)
 target_compile_definitions(acc-engineer-server PRIVATE BOOST_ASIO_NO_DEPRECATED)
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    target_compile_definitions(acc-engineer-server PRIVATE SPDLOG_ACTIVE_LEVEL=0)
+endif ()
 if (WIN32)
     target_compile_definitions(acc-engineer-server PRIVATE _WIN32_WINNT=0x0A00)
 endif ()
@@ -89,7 +95,6 @@ set(ACC_ENGINEER_SERVER_GUI_SRCS
         src/ui/gui_sink.h
         src/ui/launcher.cpp
         src/ui/launcher.h)
-      
 
 
 if (ACC_ENGINEER_SERVER_BUILD_GUI)
@@ -98,7 +103,12 @@ if (ACC_ENGINEER_SERVER_BUILD_GUI)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
     find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
-    add_executable(acc-engineer-server-gui WIN32 ${ACC_ENGINEER_SERVER_GUI_SRCS} src/main_gui.cpp)
+
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+        add_executable(acc-engineer-server-gui ${ACC_ENGINEER_SERVER_GUI_SRCS} src/main_gui.cpp)
+    else ()
+        add_executable(acc-engineer-server-gui WIN32 ${ACC_ENGINEER_SERVER_GUI_SRCS} src/main_gui.cpp)
+    endif ()
     target_link_libraries(acc-engineer-server-gui acc-engineer-server-rpc)
     target_link_libraries(acc-engineer-server-gui Boost::boost Boost::program_options)
     target_link_libraries(acc-engineer-server-gui protobuf::libprotobuf)
@@ -107,12 +117,14 @@ if (ACC_ENGINEER_SERVER_BUILD_GUI)
     target_include_directories(acc-engineer-server-gui PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     target_include_directories(acc-engineer-server-gui PRIVATE src/)
     target_compile_definitions(acc-engineer-server-gui PRIVATE BOOST_ASIO_NO_DEPRECATED)
-    
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+        target_compile_definitions(acc-engineer-server-gui PRIVATE SPDLOG_ACTIVE_LEVEL=0)
+    endif ()
+
     if (MSVC)
         target_compile_definitions(acc-engineer-server-gui PRIVATE _WIN32_WINNT=0x0A00)
     endif ()
-endif()
-
+endif ()
 
 
 if (ACC_ENGINEER_SERVER_BUILD_TESTS)

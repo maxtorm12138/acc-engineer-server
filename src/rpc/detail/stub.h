@@ -117,15 +117,19 @@ template<typename PacketHandler>
 net::awaitable<void> stub<PacketHandler>::run()
 {
     status_ = stub_status::running;
+    BOOST_SCOPE_EXIT_ALL(&)
+    {
+        status_ = stub_status::stopped;
+    };
+
     auto executor = co_await net::this_coro::executor;
     auto loop0 = net::co_spawn(executor, input_loop(), net::deferred);
     auto loop1 = net::co_spawn(executor, output_loop(), net::deferred);
     auto loop2 = net::co_spawn(executor, spawn_worker_loop(std::make_index_sequence<MAX_WORKER_SIZE>()), net::deferred);
 
-    auto run = net::experimental::make_parallel_group(std::move(loop0), std::move(loop1), std::move(loop2));
+    auto runner = net::experimental::make_parallel_group(std::move(loop0), std::move(loop1), std::move(loop2));
 
-    auto result = co_await run.async_wait(net::experimental::wait_for_one(), net::deferred);
-    status_ = stub_status::stopped;
+    auto result = co_await runner.async_wait(net::experimental::wait_for_one(), net::deferred);
 }
 
 template<typename PacketHandler>
@@ -247,33 +251,40 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
 
         if (error_code == system_error::connection_closed)
         {
+            SPDLOG_ERROR("input_loop {} receive_packet system_error: {}", id_, error_code.message());
             throw sys::system_error(error_code);
         }
 
         if (error_code == system_error::operation_canceled)
         {
+            SPDLOG_DEBUG("input_loop {} receive_packet system_error: {}", id_, error_code.message());
             break;
         }
 
         if (error_code)
         {
+            SPDLOG_ERROR("input_loop {} receive_packet system_error: {}", id_, error_code.message());
             throw sys::system_error(system_error::unhandled_system_error);
         }
 
         co_await input_channel_.async_send({}, receive_buffer, await_error_code(error_code));
-        SPDLOG_DEBUG("input_loop {} send : {} ", id_, error_code.message());
+        SPDLOG_DEBUG("input_loop {} input_channel: {} ", id_, error_code.message());
+
         if (error_code == net::experimental::error::channel_closed)
         {
+            SPDLOG_ERROR("input_loop {} input_channel system_error: {}", id_, error_code.message());
             throw sys::system_error(system_error::connection_closed);
         }
 
         if (error_code == net::experimental::error::channel_cancelled)
         {
+            SPDLOG_DEBUG("input_loop {} input_channel system_error: {}", id_, error_code.message());
             break;
         }
 
         if (error_code)
         {
+            SPDLOG_ERROR("input_loop {} input_channel system_error: {}", id_, error_code.message());
             throw sys::system_error(system_error::unhandled_system_error);
         }
     }
@@ -288,36 +299,44 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
     {
         sys::error_code error_code;
         std::vector<uint8_t> send_buffer = co_await output_channel_.async_receive(await_error_code(error_code));
-        SPDLOG_DEBUG("output_loop {} receive: {} ", id_, error_code.message());
+        SPDLOG_DEBUG("output_loop {} output_channel: {} ", id_, error_code.message());
+
         if (error_code == net::experimental::error::channel_closed)
         {
+            SPDLOG_ERROR("output_loop {} output_channel: {} ", id_, error_code.message());
             throw sys::system_error(system_error::connection_closed);
         }
 
         if (error_code == net::experimental::error::channel_cancelled)
         {
+            SPDLOG_DEBUG("output_loop {} output_channel: {} ", id_, error_code.message());
             break;
         }
 
         if (error_code)
         {
+            SPDLOG_ERROR("output_loop {} output_channel: {} ", id_, error_code.message());
             throw sys::system_error(system_error::unhandled_system_error);
         }
 
         error_code = co_await PacketHandler::send_packet(method_channel_, std::move(send_buffer));
-        spdlog::debug("output_loop {} send_packet: {} ", id_, error_code.message());
+        SPDLOG_DEBUG("output_loop {} send_packet: {} ", id_, error_code.message());
+
         if (error_code == system_error::connection_closed)
         {
+            SPDLOG_ERROR("output_loop {} send_packet: {} ", id_, error_code.message());
             throw sys::system_error(error_code);
         }
 
         if (error_code == system_error::operation_canceled)
         {
+            SPDLOG_DEBUG("output_loop {} send_packet: {} ", id_, error_code.message());
             break;
         }
 
         if (error_code)
         {
+            SPDLOG_ERROR("output_loop {} send_packet: {} ", id_, error_code.message());
             throw sys::system_error(system_error::unhandled_system_error);
         }
     }
@@ -350,7 +369,7 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
 
         if (error_code == net::experimental::error::channel_cancelled)
         {
-            SPDLOG_ERROR("worker_loop {} worker_id: {} input_channel system_error: {}", id_, WorkerId, error_code.message());
+            SPDLOG_DEBUG("worker_loop {} worker_id: {} input_channel system_error: {}", id_, WorkerId, error_code.message());
             break;
         }
 
@@ -394,7 +413,7 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
 
             if (error_code == net::experimental::error::channel_cancelled)
             {
-                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch request output_channel system_error: {}", id_, WorkerId, error_code.message());
+                SPDLOG_DEBUG("worker_loop {} worker_id: {} dispatch request output_channel system_error: {}", id_, WorkerId, error_code.message());
                 break;
             }
 
@@ -423,7 +442,7 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
 
             if (error_code == net::experimental::error::channel_cancelled)
             {
-                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch response output_channel system_error: {}", id_, WorkerId, error_code.message());
+                SPDLOG_DEBUG("worker_loop {} worker_id: {} dispatch response output_channel system_error: {}", id_, WorkerId, error_code.message());
                 break;
             }
 

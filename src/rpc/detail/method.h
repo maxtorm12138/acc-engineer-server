@@ -81,7 +81,7 @@ public:
     {
         try
         {
-            SPDLOG_DEBUG("method {} invoke", Message::descriptor()->full_name());
+            SPDLOG_DEBUG("method {} invoke", Message::descriptor()->options().GetExtension(cmd_id));
             request_t<Message> request{};
             if (!request.ParseFromArray(request_payload.data(), static_cast<int>(request_payload.size())))
             {
@@ -100,7 +100,7 @@ public:
         }
         catch (const sys::system_error &ex)
         {
-            SPDLOG_ERROR("method {} invoke system_error: {}", Message::descriptor()->full_name(), ex.what());
+            SPDLOG_ERROR("method {} invoke system_error: {}", Message::descriptor()->options().GetExtension(cmd_id), ex.what());
             if (ex.code().category() == system_error_category())
             {
                 error_code = ex.code();
@@ -114,7 +114,7 @@ public:
         }
         catch (const std::exception &ex)
         {
-            SPDLOG_ERROR("method {} invoke exception: {}", Message::descriptor()->full_name(), ex.what());
+            SPDLOG_ERROR("method {} invoke exception: {}", Message::descriptor()->options().GetExtension(cmd_id), ex.what());
             error_code = system_error::unhandled_exception;
             co_return std::vector<uint8_t>{};
         }
