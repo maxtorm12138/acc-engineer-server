@@ -12,11 +12,8 @@ namespace acc_engineer::ui {
 launcher::launcher(QWidget *parent)
     : QWidget(parent)
     , ui_(new Ui::Launcher)
-    , log_file_(new QFile)
-    , log_text_stream_(new QTextStream)
 {
     ui_->setupUi(this);
-    log_file_->setParent(this);
 }
 
 launcher::~launcher() noexcept
@@ -39,7 +36,7 @@ void launcher::on_ServerButton_clicked()
     auto address = ui_->AddressLineEdit->text();
     auto port = ui_->PortLineEdit->text().toUInt();
     auto password = ui_->PasswordLineEdit->text();
-    spdlog::debug("address: {}, port: {}, password: {}", address.toStdString(), port, password.toStdString());
+    SPDLOG_DEBUG("address: {}, port: {}, password: {}", address.toStdString(), port, password.toStdString());
 
     emit start_server(address, port, password);
 }

@@ -3,9 +3,6 @@
 
 #include <QWidget>
 
-class QFile;
-class QTextStream;
-
 namespace Ui {
 class Launcher;
 }
@@ -29,8 +26,6 @@ private slots:
 
 private:
     Ui::Launcher *ui_{nullptr};
-    QFile *log_file_{nullptr};
-    QTextStream *log_text_stream_{nullptr};
 };
 } // namespace acc_engineer::ui
 

@@ -126,7 +126,7 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
     spdlog::info("{} udp disconnected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
 }
 
-net::awaitable<Echo::Response> service::echo(const rpc::context_t &context, const Echo::Request &request)
+net::awaitable<Echo::Response> service::echo(const rpc::context &context, const Echo::Request &request)
 {
 
     Echo::Response response;
@@ -134,7 +134,7 @@ net::awaitable<Echo::Response> service::echo(const rpc::context_t &context, cons
     co_return response;
 }
 
-net::awaitable<Authentication::Response> service::authentication(const rpc::context_t &context, const Authentication::Request &request)
+net::awaitable<Authentication::Response> service::authentication(const rpc::context &context, const Authentication::Request &request)
 {
 
     if (request.password() != config_.password())

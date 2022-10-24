@@ -5,7 +5,7 @@
 
 namespace acc_engineer::rpc {
 
-using detail::context_t;
+using detail::context;
 using detail::methods;
 using detail::request_t;
 using detail::response_t;

@@ -29,9 +29,9 @@ public:
     net::awaitable<void> run();
 
 private:
-    net::awaitable<Echo::Response> echo(const rpc::context_t &context, const Echo::Request &request);
+    net::awaitable<Echo::Response> echo(const rpc::context &context, const Echo::Request &request);
 
-    net::awaitable<Authentication::Response> authentication(const rpc::context_t &context, const Authentication::Request &request);
+    net::awaitable<Authentication::Response> authentication(const rpc::context &context, const Authentication::Request &request);
 
     net::awaitable<void> tcp_run();
 

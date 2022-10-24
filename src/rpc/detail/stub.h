@@ -78,7 +78,9 @@ private:
     net::awaitable<void> worker_loop();
 
     std::tuple<uint64_t, std::bitset<64>, rpc::Cookie, std::span<uint8_t>> unpack(const std::vector<uint8_t> &receive_buffer);
+
     std::vector<uint8_t> pack(uint64_t command_id, std::bitset<64> flags, rpc::Cookie cookie, std::vector<uint8_t> payload);
+
     std::vector<uint8_t> pack(uint64_t command_id, std::bitset<64> flags, rpc::Cookie cookie, const google::protobuf::Message &message);
 
 private:
@@ -108,7 +110,7 @@ stub<PacketHandler>::stub(method_channel_type method_channel, const methods &met
 template<typename PacketHandler>
 stub<PacketHandler>::~stub()
 {
-    spdlog::debug("~stub {}", id_);
+    SPDLOG_DEBUG("~stub {}", id_);
 }
 
 template<typename PacketHandler>
@@ -131,6 +133,7 @@ net::awaitable<void> stub<PacketHandler>::stop()
 {
     if (status_ == stub_status::running)
     {
+        SPDLOG_DEBUG("stub {} stopping", id_);
         status_ = stub_status::stopping;
         method_channel_.cancel();
         input_channel_.cancel();
@@ -155,6 +158,8 @@ template<is_method_message MethodMessage>
 net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const request_t<MethodMessage> &request)
 {
     uint64_t command_id = MethodMessage::descriptor()->options().GetExtension(rpc::cmd_id);
+    SPDLOG_DEBUG("async_call {} method: {} request: {}", id_, command_id, request.ShortDebugString());
+
     bool no_reply = MethodMessage::descriptor()->options().GetExtension(rpc::no_reply);
     uint64_t trace_id = trace_id_max_++;
     std::bitset<64> flags;
@@ -174,6 +179,8 @@ net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const 
 
     sys::error_code error_code;
     co_await output_channel_.async_send({}, std::move(packet), await_error_code(error_code));
+    SPDLOG_DEBUG("async_call {} output_channel: {}", id_, error_code.message());
+
     if (error_code == net::experimental::error::channel_closed)
     {
         throw sys::system_error(system_error::connection_closed);
@@ -190,6 +197,8 @@ net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const 
     }
 
     auto response_payload = co_await calling_channel_[trace_id]->async_receive(await_error_code(error_code));
+    SPDLOG_DEBUG("async_call {} calling_channel: {}", id_, error_code.message());
+
     if (error_code == net::experimental::error::channel_closed)
     {
         throw sys::system_error(system_error::connection_closed);
@@ -229,12 +238,13 @@ template<typename PacketHandler>
 net::awaitable<void> stub<PacketHandler>::input_loop()
 {
     std::vector<uint8_t> receive_buffer(PacketHandler::MAX_PACKET_SIZE);
-    spdlog::debug("input_loop {} started", id_);
+    SPDLOG_DEBUG("input_loop {} started", id_);
     while (status_ == stub_status::running)
     {
         sys::error_code error_code;
         error_code = co_await PacketHandler::receive_packet(method_channel_, receive_buffer);
-        spdlog::debug("input_loop {} receive_packet: {} ", id_, error_code.message());
+        SPDLOG_DEBUG("input_loop {} receive_packet: {} ", id_, error_code.message());
+
         if (error_code == system_error::connection_closed)
         {
             throw sys::system_error(error_code);
@@ -251,7 +261,7 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
         }
 
         co_await input_channel_.async_send({}, receive_buffer, await_error_code(error_code));
-        spdlog::debug("input_loop {} send : {} ", id_, error_code.message());
+        SPDLOG_DEBUG("input_loop {} send : {} ", id_, error_code.message());
         if (error_code == net::experimental::error::channel_closed)
         {
             throw sys::system_error(system_error::connection_closed);
@@ -267,18 +277,18 @@ net::awaitable<void> stub<PacketHandler>::input_loop()
             throw sys::system_error(system_error::unhandled_system_error);
         }
     }
-    spdlog::debug("input_loop {} stopped", id_);
+    SPDLOG_DEBUG("input_loop {} stopped", id_);
 }
 
 template<typename PacketHandler>
 net::awaitable<void> stub<PacketHandler>::output_loop()
 {
-    spdlog::debug("output_loop {} started", id_);
+    SPDLOG_DEBUG("output_loop {} started", id_);
     while (status_ == stub_status::running)
     {
         sys::error_code error_code;
         std::vector<uint8_t> send_buffer = co_await output_channel_.async_receive(await_error_code(error_code));
-        spdlog::debug("output_loop {} receive: {} ", id_, error_code.message());
+        SPDLOG_DEBUG("output_loop {} receive: {} ", id_, error_code.message());
         if (error_code == net::experimental::error::channel_closed)
         {
             throw sys::system_error(system_error::connection_closed);
@@ -311,7 +321,7 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
             throw sys::system_error(system_error::unhandled_system_error);
         }
     }
-    spdlog::debug("output_loop {} stopped", id_);
+    SPDLOG_DEBUG("output_loop {} stopped", id_);
 }
 
 template<typename PacketHandler>
@@ -327,24 +337,26 @@ template<typename PacketHandler>
 template<size_t WorkerId>
 net::awaitable<void> stub<PacketHandler>::worker_loop()
 {
-    spdlog::debug("worker_loop {} {} started", id_, WorkerId);
+    SPDLOG_DEBUG("worker_loop {} worker_id: {} started", id_, WorkerId);
     while (status_ == stub_status::running)
     {
         sys::error_code error_code;
         std::vector<uint8_t> receive_buffer = co_await input_channel_.async_receive(await_error_code(error_code));
-        spdlog::debug("worker_loop {} {} receive: {}", id_, WorkerId, error_code.message());
         if (error_code == net::experimental::error::channel_closed)
         {
+            SPDLOG_ERROR("worker_loop {} worker_id: {} input_channel system_error: {}", id_, WorkerId, error_code.message());
             throw sys::system_error(system_error::connection_closed);
         }
 
         if (error_code == net::experimental::error::channel_cancelled)
         {
+            SPDLOG_ERROR("worker_loop {} worker_id: {} input_channel system_error: {}", id_, WorkerId, error_code.message());
             break;
         }
 
         if (error_code)
         {
+            SPDLOG_ERROR("worker_loop {} worker_id: {} input_channel system_error: {}", id_, WorkerId, error_code.message());
             throw sys::system_error(system_error::unhandled_system_error);
         }
 
@@ -352,70 +364,77 @@ net::awaitable<void> stub<PacketHandler>::worker_loop()
 
         if (flags.test(flag_is_request))
         {
-            const context_t context{.stub_id = id_, .packet_handler_type = PacketHandler::type};
-            std::vector<uint8_t> response_payload;
-            std::vector<uint8_t> send_buffer;
-            try
-            {
-                response_payload = co_await methods_(command_id, context, payload);
-                if (flags.test(flag_no_reply))
-                {
-                    continue;
-                }
+            SPDLOG_DEBUG("worker_loop {} worker_id: {} command_id {} dispatch_request", id_, WorkerId, command_id);
 
-                std::bitset<64> response_flags;
-                response_flags.set(flag_is_request, false);
-                send_buffer = pack(command_id, response_flags, std::move(cookie), std::move(response_payload));
-            }
-            catch (sys::system_error &ex)
+            const context context{.stub_id = id_, .packet_handler_type = PacketHandler::type};
+            std::vector<uint8_t> response_payload = co_await methods_(command_id, context, payload, error_code);
+            if (flags.test(flag_no_reply))
             {
-                if (ex.code().category() == system_error_category())
-                {
-                    cookie.set_error_code(ex.code().value());
-                }
-                else
-                {
-                    cookie.set_error_code(static_cast<uint64_t>(system_error::unhandled_system_error));
-                }
+                SPDLOG_DEBUG("worker_loop {} worker_id: {} command_id {} dispatch_request no reply", id_, WorkerId, command_id);
+                continue;
             }
+
+            std::bitset<64> response_flags;
+            response_flags.set(flag_is_request, false);
+
+            if (error_code)
+            {
+                SPDLOG_INFO("worker_loop {} worker_id: {} command_id {} dispatch_request system_error: {}", id_, WorkerId, command_id, error_code.message());
+                cookie.set_error_code(error_code.value());
+            }
+
+            std::vector<uint8_t> send_buffer = pack(command_id, response_flags, std::move(cookie), std::move(response_payload));
 
             co_await output_channel_.async_send({}, std::move(send_buffer), await_error_code(error_code));
             if (error_code == net::experimental::error::channel_closed)
             {
+                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch_request output_channel system_error: {}", id_, WorkerId, error_code.message());
                 throw sys::system_error(system_error::connection_closed);
             }
 
             if (error_code == net::experimental::error::channel_cancelled)
             {
+                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch request output_channel system_error: {}", id_, WorkerId, error_code.message());
                 break;
             }
 
             if (error_code)
             {
+                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch request output_channel system_error: {}", id_, WorkerId, error_code.message());
                 throw sys::system_error(system_error::unhandled_system_error);
             }
         }
-        else if (auto calling = calling_channel_.find(cookie.trace_id()); calling != calling_channel_.end())
+        else
         {
-            co_await calling->second->async_send(static_cast<system_error>(cookie.error_code()), std::vector(payload.begin(), payload.end()), await_error_code(error_code));
+            SPDLOG_DEBUG("worker_loop {} worker_id: {} command_id {} dispatch response", id_, WorkerId, command_id);
+            auto it_calling = calling_channel_.find(cookie.trace_id());
+            if (it_calling == calling_channel_.end())
+            {
+                SPDLOG_INFO("worker_loop {} worker_id: {} command_id {} dispatch response outdated trace_id: {}", id_, WorkerId, command_id, cookie.trace_id());
+                continue;
+            }
+
+            co_await it_calling->second->async_send(static_cast<system_error>(cookie.error_code()), std::vector(payload.begin(), payload.end()), await_error_code(error_code));
             if (error_code == net::experimental::error::channel_closed)
             {
+                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch response output_channel system_error: {}", id_, WorkerId, error_code.message());
                 throw sys::system_error(system_error::connection_closed);
             }
 
             if (error_code == net::experimental::error::channel_cancelled)
             {
+                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch response output_channel system_error: {}", id_, WorkerId, error_code.message());
                 break;
             }
 
             if (error_code)
             {
+                SPDLOG_ERROR("worker_loop {} worker_id: {} dispatch response output_channel system_error: {}", id_, WorkerId, error_code.message());
                 throw sys::system_error(system_error::unhandled_system_error);
             }
         }
-        else {}
     }
-    spdlog::debug("worker_loop {} {} stopped", id_, WorkerId);
+    SPDLOG_DEBUG("worker_loop {} worker_id: {} stopped", id_, WorkerId);
 }
 
 template<typename PacketHandler>
