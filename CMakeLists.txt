@@ -126,7 +126,6 @@ if (ACC_ENGINEER_SERVER_BUILD_GUI)
     endif ()
 endif ()
 
-
 if (ACC_ENGINEER_SERVER_BUILD_TESTS)
     add_subdirectory(test/)
 endif ()

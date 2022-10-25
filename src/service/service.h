@@ -29,6 +29,8 @@ public:
 
     net::awaitable<void> run();
 
+    net::awaitable<void> stop();
+
 private:
     net::awaitable<sys::error_code> timer_reset(uint64_t command_id, const rpc::context &context, google::protobuf::Message &);
 
@@ -45,6 +47,9 @@ private:
 
     net::awaitable<void> new_udp_connection(net::ip::udp::socket socket, std::vector<uint8_t> initial);
 
+    template<typename Message>
+    net::awaitable<void> post_tcp(const rpc::request_t<Message> &request);
+
     config config_;
     bool running_{false};
     rpc::methods methods_;
@@ -56,7 +61,25 @@ private:
 
     std::unordered_map<uint64_t, std::weak_ptr<rpc::tcp_stub>> tcp_by_driver_id_;
     std::unordered_map<uint64_t, std::weak_ptr<rpc::udp_stub>> udp_by_driver_id_;
+
+    std::unordered_map<std::string, uint64_t> driver_by_name_;
+
+private:
+    static std::atomic<uint64_t> driver_id_max_;
 };
+
+template<typename Message>
+net::awaitable<void> service::post_tcp(const rpc::request_t<Message> &request)
+{
+    std::vector<uint64_t> error;
+    for (auto [driver_id, weak_tcp_stub] : tcp_by_driver_id_)
+    {
+        if (auto tcp_stub = weak_tcp_stub.lock(); tcp_stub != nullptr)
+        {
+            co_await tcp_stub->async_call<Message>(request);
+        }
+    }
+}
 } // namespace acc_engineer
 
 #endif // ACC_ENGINEER_SERVER_SERVICE_H

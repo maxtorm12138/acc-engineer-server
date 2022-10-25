@@ -206,43 +206,51 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
         co_return response;
     }
 
-    /*
-    if (driver_name_id_.contains(request.driver_name()) && driver_name_id_[request.driver_name()] == request.driver_id())
+    uint64_t allocated_driver_id = 0;
+    if (auto it_driver = driver_by_name_.find(request.driver_name()); it_driver != driver_by_name_.end() && request.driver_id() != 0)
     {
-        switch (context.stub_type)
+        if (it_driver->second != request.driver_id())
         {
-        case rpc::detail::stub_type::stream:
-            driver_id_stub_[request.driver_id()].first = context.stub_id;
-            break;
-        case rpc::detail::stub_type::datagram:
-            driver_id_stub_[request.driver_id()].second = context.stub_id;
-            break;
+            Authentication::Response response;
+            response.set_error_code(2);
+            response.set_error_message("authentication failure");
+            co_return response;
         }
+
+        allocated_driver_id = request.driver_id();
+    }
+    else
+    {
+        allocated_driver_id = driver_id_max_++;
+        driver_by_name_[request.driver_name()] = allocated_driver_id;
     }
 
-    uint64_t allocated_driver_id = driver_id_max_++;
-
-    for (auto &driver_item : driver_name_id_)
+    if (context.packet_handler_type == rpc::tcp_packet_handler::type)
     {
-        OnlineNotify::Request online_notify_request;
-        online_notify_request.set_driver_id(allocated_driver_id);
-        online_notify_request.set_driver_name(request.driver_name());
-
-        uint64_t tcp_stub_id = driver_id_stub_[driver_item.second].first;
-
-        if (auto stub = id_tcp_stub_[tcp_stub_id].lock(); stub != nullptr)
-        {
-            auto resp = co_await stub->async_call<OnlineNotify>(online_notify_request);
-        }
+        tcp_by_driver_id_[allocated_driver_id] = tcp_by_id_[context.stub_id];
+    }
+    else if (context.packet_handler_type == rpc::udp_packet_handler::type)
+    {
+        udp_by_driver_id_[allocated_driver_id] = udp_by_id_[context.stub_id];
     }
 
-    driver_name_id_[request.driver_name()] = allocated_driver_id;
-        */
+    DriverUpdate::Request driver_update_request;
+    for (const auto &[driver_name, driver_id] : driver_by_name_)
+    {
+        auto driver = driver_update_request.add_drivers();
+        driver->set_driver_name(driver_name);
+        driver->set_driver_id(driver_id);
+    }
+
+    co_await post_tcp<DriverUpdate>(driver_update_request);
+
     Authentication::Response response;
     response.set_error_code(0);
     response.set_error_message("success");
-    response.set_driver_id(0);
+    response.set_driver_id(allocated_driver_id);
     co_return response;
 }
+
+std::atomic<uint64_t> service::driver_id_max_{1};
 
 } // namespace acc_engineer
