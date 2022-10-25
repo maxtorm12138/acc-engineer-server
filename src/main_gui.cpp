@@ -23,8 +23,8 @@ namespace net = boost::asio;
 net::awaitable<void> co_service_main(std::string args)
 {
     auto config = acc_engineer::config::from_string(args);
-    acc_engineer::service service(config);
-    co_await service.run();
+    auto service = std::make_shared<acc_engineer::service>(config);
+    co_await service->run();
 }
 
 int service_main(std::string args)

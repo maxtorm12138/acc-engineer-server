@@ -28,6 +28,9 @@ struct context
     uint64_t packet_handler_type;
 };
 
+using request_interceptor_type = std::function<net::awaitable<sys::error_code>(uint64_t, const context &, google::protobuf::Message &)>;
+using response_interceptor_type = std::function<net::awaitable<sys::error_code>(uint64_t, const context &, const google::protobuf::Message &, google::protobuf::Message &)>;
+
 template<typename Message>
 concept is_method_message = requires {
                                 std::derived_from<Message, google::protobuf::Message>;
@@ -64,7 +67,9 @@ using response_t = typename response<message>::type;
 
 struct method_type_erasure : public boost::noncopyable
 {
-    virtual net::awaitable<std::vector<uint8_t>> operator()(context context, std::span<uint8_t> request_message_payload, sys::error_code &error_code) noexcept = 0;
+    virtual net::awaitable<std::vector<uint8_t>> operator()(context context, std::span<uint8_t> request_message_payload,
+        const std::vector<request_interceptor_type> &request_interceptors, const std::vector<response_interceptor_type> &response_interceptors,
+        sys::error_code &error_code) noexcept = 0;
 
     virtual ~method_type_erasure() = default;
 };
@@ -77,18 +82,38 @@ public:
     explicit method(Implement &&implement)
         : implement_(std::forward<Implement>(implement)){};
 
-    net::awaitable<std::vector<uint8_t>> operator()(context context, std::span<uint8_t> request_payload, sys::error_code &error_code) noexcept override
+    net::awaitable<std::vector<uint8_t>> operator()(context context, std::span<uint8_t> request_payload, const std::vector<request_interceptor_type> &request_interceptors,
+        const std::vector<response_interceptor_type> &response_interceptors, sys::error_code &error_code) noexcept override
     {
+        uint64_t command_id = Message::descriptor()->options().GetExtension(cmd_id);
         try
         {
-            SPDLOG_DEBUG("method {} invoke", Message::descriptor()->options().GetExtension(cmd_id));
+            SPDLOG_DEBUG("method {} invoke", command_id);
             request_t<Message> request{};
             if (!request.ParseFromArray(request_payload.data(), static_cast<int>(request_payload.size())))
             {
                 throw sys::system_error(system_error::proto_parse_fail);
             }
 
+            for (auto &request_interceptor : request_interceptors)
+            {
+                sys::error_code error_code = co_await request_interceptor(command_id, context, request);
+                if (error_code)
+                {
+                    throw sys::system_error(error_code);
+                }
+            }
+
             response_t<Message> response = co_await std::invoke(implement_, std::cref(context), std::cref(request));
+
+            for (auto &response_interceptor : response_interceptors)
+            {
+                sys::error_code error_code = co_await response_interceptor(command_id, context, request, response);
+                if (error_code)
+                {
+                    throw sys::system_error(error_code);
+                }
+            }
 
             std::vector<uint8_t> response_payload(response.ByteSizeLong());
             if (!response.SerializeToArray(response_payload.data(), static_cast<int>(response_payload.size())))
@@ -100,7 +125,7 @@ public:
         }
         catch (const sys::system_error &ex)
         {
-            SPDLOG_ERROR("method {} invoke system_error: {}", Message::descriptor()->options().GetExtension(cmd_id), ex.what());
+            SPDLOG_ERROR("method {} invoke system_error: {}", command_id, ex.what());
             if (ex.code().category() == system_error_category())
             {
                 error_code = ex.code();
@@ -133,6 +158,18 @@ public:
         return methods;
     }
 
+    methods &add_request_interceptor(request_interceptor_type request_interceptor)
+    {
+        request_interceptors_.emplace_back(std::move(request_interceptor));
+        return *this;
+    }
+
+    methods &add_request_interceptor(response_interceptor_type response_interceptor)
+    {
+        response_interceptors_.emplace_back(std::move(response_interceptor));
+        return *this;
+    }
+
     template<is_method_message Message, typename Implement>
         requires is_method_implement<Message, Implement>
     methods &implement(Implement &&implement)
@@ -159,10 +196,12 @@ public:
             co_return std::vector<uint8_t>{};
         }
 
-        co_return co_await std::invoke(*implement->second, context, request_message_payload, error_code);
+        co_return co_await std::invoke(*implement->second, context, request_message_payload, request_interceptors_, response_interceptors_, error_code);
     }
 
 private:
+    std::vector<request_interceptor_type> request_interceptors_;
+    std::vector<response_interceptor_type> response_interceptors_;
     std::unordered_map<uint64_t, std::unique_ptr<method_type_erasure>> implements_;
 };
 

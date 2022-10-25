@@ -9,8 +9,8 @@ namespace net = boost::asio;
 net::awaitable<void> co_main(int argc, char *argv[])
 {
     auto config = acc_engineer::config::from_command_line(argc, argv);
-    acc_engineer::service service(config);
-    co_await service.run();
+    auto service = std::make_shared<acc_engineer::service>(config);
+    co_await service->run();
 }
 
 int main(int argc, char *argv[])
@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
                 std::rethrow_exception(exception_ptr);
             }
         }
-        catch(const std::exception & ex)
+        catch (const std::exception &ex)
         {
             SPDLOG_ERROR("co_main exception: {}", ex.what());
         }

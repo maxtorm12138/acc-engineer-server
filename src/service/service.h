@@ -20,8 +20,9 @@
 
 namespace acc_engineer {
 namespace net = boost::asio;
+namespace sys = boost::system;
 
-class service
+class service : public std::enable_shared_from_this<service>
 {
 public:
     explicit service(config cfg);
@@ -29,10 +30,13 @@ public:
     net::awaitable<void> run();
 
 private:
+    net::awaitable<sys::error_code> timer_reset(uint64_t command_id, const rpc::context &context, google::protobuf::Message &);
+
     net::awaitable<Echo::Response> echo(const rpc::context &context, const Echo::Request &request);
 
     net::awaitable<Authentication::Response> authentication(const rpc::context &context, const Authentication::Request &request);
 
+private:
     net::awaitable<void> tcp_run();
 
     net::awaitable<void> udp_run();
@@ -45,9 +49,13 @@ private:
     bool running_{false};
     rpc::methods methods_;
 
-    std::unordered_map<uint64_t, std::shared_ptr<rpc::tcp_stub>> conn_id_tcp_;
-    std::unordered_map<uint64_t, std::shared_ptr<rpc::udp_stub>> conn_id_udp_;
-    std::unordered_map<net::ip::udp::endpoint, uint64_t> conn_ep_udp_;
+    std::unordered_map<uint64_t, std::weak_ptr<rpc::tcp_stub>> tcp_by_id_;
+    std::unordered_map<uint64_t, std::weak_ptr<rpc::udp_stub>> udp_by_id_;
+    std::unordered_map<net::ip::udp::endpoint, std::weak_ptr<rpc::udp_stub>> udp_by_endpoint_;
+    std::unordered_map<uint64_t, std::weak_ptr<net::steady_timer>> timer_by_id_;
+
+    std::unordered_map<uint64_t, std::weak_ptr<rpc::tcp_stub>> tcp_by_driver_id_;
+    std::unordered_map<uint64_t, std::weak_ptr<rpc::udp_stub>> udp_by_driver_id_;
 };
 } // namespace acc_engineer
 
