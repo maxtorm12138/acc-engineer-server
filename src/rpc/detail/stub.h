@@ -209,6 +209,11 @@ net::awaitable<response_t<MethodMessage>> stub<PacketHandler>::async_call(const 
         throw sys::system_error(system_error::unhandled_system_error);
     }
 
+    if (no_reply)
+    {
+        co_return response_t<MethodMessage>{};
+    }
+
     auto response_payload = co_await calling_channel_[trace_id]->async_receive(await_error_code(error_code));
     SPDLOG_DEBUG("async_call {} calling_channel: {}", id_, error_code.message());
 
