@@ -5,8 +5,11 @@
 #include <spdlog/spdlog.h>
 #include <boost/system/error_code.hpp>
 
+#include "rpc/batch_task.h"
+
 namespace net = boost::asio;
 namespace sys = boost::system;
+namespace rpc = acc_engineer::rpc;
 
 template<size_t N>
 net::awaitable<void> job()
@@ -14,50 +17,63 @@ net::awaitable<void> job()
     using namespace std::chrono_literals;
     net::steady_timer timer(co_await net::this_coro::executor);
     auto random_ms = (rand() % 10000) + 1000;
-    spdlog::error("job {} started pause {} ms", N, random_ms);
+    spdlog::info("job {} started pause {} ms", N, random_ms);
     timer.expires_after(std::chrono::milliseconds(random_ms));
 
     sys::error_code ec;
     co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
     if (ec)
     {
-        spdlog::error("job {} error {}", N, ec.message());
-        co_return;
+        spdlog::info("job {} error {}", N, ec.message());
     }
 
-    spdlog::error("job {} ended", N);
+    spdlog::info("job {} ended", N);
 }
 
-template<size_t... N>
-net::awaitable<void> runner(std::index_sequence<N...>)
-{
-    auto executor = co_await net::this_coro::executor;
-    auto run = net::experimental::make_parallel_group(net::co_spawn(executor, job<N>(), net::deferred)...);
-    co_await run.async_wait(net::experimental::wait_for_all(), net::deferred);
-}
-
-net::awaitable<void> random_stopper()
+template<size_t N>
+net::awaitable<int> value_job()
 {
     using namespace std::chrono_literals;
     net::steady_timer timer(co_await net::this_coro::executor);
     auto random_ms = (rand() % 10000) + 1000;
-    spdlog::error("stopper wait {} ms", random_ms);
+    spdlog::info("value_job {} started pause {} ms", N, random_ms);
     timer.expires_after(std::chrono::milliseconds(random_ms));
-    co_await timer.async_wait(net::use_awaitable);
-    spdlog::error("stopper triggered", random_ms);
+
+    sys::error_code ec;
+    co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+    if (ec)
+    {
+        spdlog::info("value_job {} error {}", N, ec.message());
+    }
+
+    spdlog::info("value_job {} ended", N);
+    co_return random_ms;
 }
 
 net::awaitable<void> co_main()
 {
     auto executor = co_await net::this_coro::executor;
-    auto run = net::experimental::make_parallel_group(
-        net::co_spawn(executor, runner(std::make_index_sequence<100>()), net::deferred), net::co_spawn(executor, random_stopper(), net::deferred));
-    auto [order, exception_1, exception_2] = co_await run.async_wait(net::experimental::wait_for_one(), net::deferred);
-    if (order[0] == 1)
-    {
-        spdlog::error("stopper triggered");
-    }
-    else {}
+    rpc::batch_task batch_task(executor);
+    co_await batch_task.add(job<0>());
+    co_await batch_task.add(job<1>());
+    co_await batch_task.add(job<2>());
+    co_await batch_task.add(job<3>());
+
+    co_await batch_task.async_wait();
+    spdlog::info("job ended");
+
+    std::vector<int> values(4);
+    co_await batch_task.add(value_job<0>(), values[0]);
+    co_await batch_task.add(value_job<1>(), values[1]);
+    co_await batch_task.add(value_job<2>(), values[2]);
+    co_await batch_task.add(value_job<3>(), values[3]);
+
+    co_await batch_task.async_wait();
+    spdlog::info("values[0]: {}", values[0]);
+    spdlog::info("values[1]: {}", values[1]);
+    spdlog::info("values[2]: {}", values[2]);
+    spdlog::info("values[3]: {}", values[3]);
+    spdlog::info("value_job ended");
 }
 
 int main(int argc, char *argv[])
