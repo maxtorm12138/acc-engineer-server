@@ -12,22 +12,22 @@ namespace sys = boost::system;
 namespace rpc = acc_engineer::rpc;
 
 template<size_t N>
-net::awaitable<void> job()
+net::awaitable<void> void_job()
 {
     using namespace std::chrono_literals;
     net::steady_timer timer(co_await net::this_coro::executor);
     auto random_ms = (rand() % 10000) + 1000;
-    spdlog::info("job {} started pause {} ms", N, random_ms);
+    spdlog::info("void_job {} started pause {} ms", N, random_ms);
     timer.expires_after(std::chrono::milliseconds(random_ms));
 
     sys::error_code ec;
     co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
     if (ec)
     {
-        spdlog::info("job {} error {}", N, ec.message());
+        spdlog::info("void_job {} error {}", N, ec.message());
     }
 
-    spdlog::info("job {} ended", N);
+    spdlog::info("void_job {} ended", N);
 }
 
 template<size_t N>
@@ -51,7 +51,7 @@ net::awaitable<int> value_job()
 }
 
 template<size_t N>
-net::awaitable<void> long_time_job()
+net::awaitable<void> cancel_job()
 {
     using namespace std::chrono_literals;
     net::steady_timer timer(co_await net::this_coro::executor);
@@ -59,62 +59,94 @@ net::awaitable<void> long_time_job()
     spdlog::info("long_time_job {} started pause {} ms", N, random_ms);
     timer.expires_after(std::chrono::milliseconds(random_ms));
 
-    sys::error_code ec;
-    co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
-    if (ec)
-    {
-        spdlog::info("long_time_job {} error {}", N, ec.message());
-    }
+    co_await timer.async_wait(net::use_awaitable);
 
-    spdlog::info("long_time_job {} ended", N);
+    spdlog::info("cancel_job {} ended", N);
 }
 
-template<typename Executor>
-net::awaitable<void> long_time_job_canceller(rpc::batch_task<Executor> &task)
+net::awaitable<void> cancel_job_canceller(rpc::batch_task<void> &task)
 {
     auto executor = co_await net::this_coro::executor;
     using namespace std::chrono_literals;
     net::steady_timer timer(executor);
     timer.expires_after(5s);
-    spdlog::info("long_time_job_canceller started pause 5s");
+    spdlog::info("cancel_job_canceller started pause 5s");
     co_await timer.async_wait(net::use_awaitable);
     task.cancel();
-    spdlog::info("long_time_job_canceller ended");
+    spdlog::info("cancel_job_canceller ended");
+}
+
+net::awaitable<void> run_void_job()
+{
+    auto executor = co_await net::this_coro::executor;
+    rpc::batch_task<void> batch_task(executor);
+    co_await batch_task.add(void_job<0>());
+    co_await batch_task.add(void_job<1>());
+    co_await batch_task.add(void_job<2>());
+    co_await batch_task.add(void_job<3>());
+
+    auto [order, exceptions] = co_await batch_task.async_wait();
+    spdlog::info("void job end");
+}
+
+net::awaitable<void> run_cancel_job()
+{
+    auto executor = co_await net::this_coro::executor;
+    rpc::batch_task<void> batch_task(executor);
+    co_await batch_task.add(cancel_job<0>());
+    co_await batch_task.add(cancel_job<1>());
+    co_await batch_task.add(cancel_job<2>());
+    co_await batch_task.add(cancel_job<3>());
+
+    net::co_spawn(executor, cancel_job_canceller(batch_task), net::detached);
+    auto [order, exceptions] = co_await batch_task.async_wait();
+    for (int i = 0; i < order.size(); i++)
+    {
+        try
+        {
+            if (exceptions[i] != nullptr)
+            {
+                std::rethrow_exception(exceptions[i]);
+            }
+            spdlog::info("cancel_job {} no exception", order[i]);
+        }
+        catch (sys::system_error &ex)
+        {
+            spdlog::info("cancel_job {} system_error {}", order[i], ex.what());
+        }
+    }
+
+    spdlog::info("cancel job end");
+}
+
+net::awaitable<void> run_value_job()
+{
+    auto executor = co_await net::this_coro::executor;
+    rpc::batch_task<int> batch_task(executor);
+
+    co_await batch_task.add(value_job<0>());
+    co_await batch_task.add(value_job<1>());
+    co_await batch_task.add(value_job<2>());
+    co_await batch_task.add(value_job<3>());
+
+    auto [order, exceptions, values] = co_await batch_task.async_wait();
+
+    std::string value_str = "[";
+    for (auto value : values)
+    {
+        value_str += std::to_string(value);
+        value_str += ", ";
+    }
+
+    value_str += "]";
+    spdlog::info("value_job ended, values: {}", value_str);
 }
 
 net::awaitable<void> co_main()
 {
-    auto executor = co_await net::this_coro::executor;
-    rpc::batch_task batch_task(executor);
-    co_await batch_task.add(job<0>());
-    co_await batch_task.add(job<1>());
-    co_await batch_task.add(job<2>());
-    co_await batch_task.add(job<3>());
-
-    co_await batch_task.async_wait();
-    spdlog::info("job ended");
-
-    std::vector<int> values(4);
-    co_await batch_task.add(value_job<0>(), values[0]);
-    co_await batch_task.add(value_job<1>(), values[1]);
-    co_await batch_task.add(value_job<2>(), values[2]);
-    co_await batch_task.add(value_job<3>(), values[3]);
-
-    co_await batch_task.async_wait();
-    spdlog::info("values[0]: {}", values[0]);
-    spdlog::info("values[1]: {}", values[1]);
-    spdlog::info("values[2]: {}", values[2]);
-    spdlog::info("values[3]: {}", values[3]);
-    spdlog::info("value_job ended");
-
-    co_await batch_task.add(long_time_job<0>());
-    co_await batch_task.add(long_time_job<1>());
-    co_await batch_task.add(long_time_job<2>());
-    co_await batch_task.add(long_time_job<3>());
-
-    net::co_spawn(executor, long_time_job_canceller(batch_task), net::detached);
-    co_await batch_task.async_wait();
-    spdlog::info("long_time_job ended");
+    co_await run_void_job();
+    co_await run_value_job();
+    co_await run_cancel_job();
 }
 
 int main(int argc, char *argv[])
