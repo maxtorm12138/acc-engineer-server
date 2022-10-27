@@ -66,13 +66,12 @@ net::awaitable<void> service::udp_run()
         net::ip::udp::endpoint remote;
         size_t size_read = co_await acceptor.async_receive_from(net::buffer(initial), remote, net::use_awaitable);
 
-        if (auto it_udp = udp_by_endpoint_.find(remote); it_udp != udp_by_endpoint_.end())
+        if (auto it_session = udp_sessions_.get<tag_udp_endpoint>().find(remote); it_session != udp_sessions_.get<tag_udp_endpoint>().end())
         {
-            if (auto udp_stub = it_udp->second.lock(); udp_stub != nullptr)
+            if (auto udp_stub = it_session->stub.lock(); udp_stub != nullptr)
             {
                 co_await udp_stub->deliver(std::vector(initial.begin(), initial.begin() + size_read));
             }
-
             continue;
         }
 
@@ -93,19 +92,30 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
     auto remote_endpoint = socket.remote_endpoint();
     using namespace std::chrono_literals;
 
-    spdlog::info("{} tcp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
+    SPDLOG_INFO("{} tcp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
         auto tcp_stub = rpc::tcp_stub::create(std::move(socket), methods_);
-        auto timer = std::make_shared<net::steady_timer>(co_await net::this_coro::executor);
         stub_id = tcp_stub->id();
 
-        tcp_by_id_.emplace(stub_id, tcp_stub);
-        timer_by_id_.emplace(stub_id, timer);
+        auto timer = std::make_shared<net::steady_timer>(co_await net::this_coro::executor);
+
+        tcp_session session{.id = stub_id, .driver_id = 0, .stub = tcp_stub, .watcher = timer};
+        staged_tcp_sessions_.emplace(std::move(session));
+
         BOOST_SCOPE_EXIT_ALL(&)
         {
-            timer_by_id_.erase(stub_id);
-            tcp_by_id_.erase(stub_id);
+            auto &view0 = staged_tcp_sessions_.get<tag_stub_id>();
+            auto &view1 = tcp_sessions_.get<tag_stub_id>();
+
+            if (auto it = view0.extract(stub_id); !it.empty())
+            {
+                SPDLOG_TRACE("new_tcp_connection extract {} from staged_tcp_sessions", stub_id);
+            }
+            else if (auto it = view1.extract(stub_id); !it.empty())
+            {
+                SPDLOG_TRACE("new_tcp_connection extract {} from tcp_sessions", stub_id);
+            }
         };
 
         auto watcher = [this, that = shared_from_this(), timer, tcp_stub, stub_id]() -> net::awaitable<void> {
@@ -115,6 +125,7 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
             {
                 co_await timer->async_wait(rpc::await_error_code(error_code));
             } while (error_code == net::error::operation_aborted);
+
             SPDLOG_DEBUG("watcher {} expire trigger", stub_id);
             co_await tcp_stub->stop();
         };
@@ -135,31 +146,42 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
     auto remote_endpoint = socket.remote_endpoint();
     using namespace std::chrono_literals;
 
-    spdlog::info("{} udp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
+    SPDLOG_INFO("{} udp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
         auto udp_stub = rpc::udp_stub::create(std::move(socket), methods_);
-        auto timer = std::make_shared<net::steady_timer>(co_await net::this_coro::executor);
         stub_id = udp_stub->id();
-        udp_by_id_.emplace(stub_id, udp_stub);
-        udp_by_endpoint_.emplace(remote_endpoint, udp_stub);
-        timer_by_id_.emplace(stub_id, timer);
+
+        auto timer = std::make_shared<net::steady_timer>(co_await net::this_coro::executor);
+
+        udp_session session{.id = stub_id, .driver_id = 0, .stub = udp_stub, .watcher = timer};
+
+        staged_udp_sessions_.emplace(std::move(session));
         BOOST_SCOPE_EXIT_ALL(&)
         {
-            timer_by_id_.erase(stub_id);
-            udp_by_endpoint_.erase(remote_endpoint);
-            udp_by_id_.erase(stub_id);
+            auto &view0 = staged_udp_sessions_.get<tag_stub_id>();
+            auto &view1 = udp_sessions_.get<tag_stub_id>();
+
+            if (auto it = view0.extract(stub_id); !it.empty())
+            {
+                SPDLOG_DEBUG("new_udp_connection extract {} from staged_udp_sessions", stub_id);
+            }
+            else if (auto it = view1.extract(stub_id); !it.empty())
+            {
+                SPDLOG_DEBUG("new_udp_connection extract {} from udp_sessions", stub_id);
+            }
         };
 
-        auto watcher = [this, that = shared_from_this(), timer, udp_stub, stub_id]() -> net::awaitable<void> {
+        auto watcher = [this, that = shared_from_this(), timer, weak_udp_stub = std::weak_ptr(udp_stub), stub_id]() -> net::awaitable<void> {
             sys::error_code error_code;
             timer->expires_after(10s);
             do
             {
                 co_await timer->async_wait(rpc::await_error_code(error_code));
             } while (error_code == net::error::operation_aborted);
+
             SPDLOG_DEBUG("watcher {} expire trigger", stub_id);
-            co_await udp_stub->stop();
+            co_await weak_udp_stub.lock()->stop();
         };
 
         net::co_spawn(co_await net::this_coro::executor, watcher(), net::detached);

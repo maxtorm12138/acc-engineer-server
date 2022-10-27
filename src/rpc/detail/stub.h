@@ -549,10 +549,10 @@ std::vector<uint8_t> stub<PacketHandler>::pack(uint64_t command_id, std::bitset<
 }
 
 template<typename PacketHandler>
-std::atomic<uint64_t> stub<PacketHandler>::stub_id_max_;
+std::atomic<uint64_t> stub<PacketHandler>::stub_id_max_{1};
 
 template<typename PacketHandler>
-std::atomic<uint64_t> stub<PacketHandler>::trace_id_max_;
+std::atomic<uint64_t> stub<PacketHandler>::trace_id_max_{1};
 
 } // namespace acc_engineer::rpc::detail
 
