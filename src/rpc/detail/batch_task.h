@@ -18,6 +18,33 @@ namespace acc_engineer::rpc::detail {
 namespace net = boost::asio;
 namespace sys = boost::system;
 
+template<typename T>
+using wrap_t = std::conditional_t<std::is_default_constructible_v<T>, T, std::optional<T>>;
+
+template<typename T, typename Executor>
+net::awaitable<T, Executor> awaitable_wrap(net::awaitable<T, Executor> a, std::enable_if_t<std::is_constructible_v<T>, int> * = nullptr)
+{
+    return a;
+}
+
+template<typename T, typename Executor>
+net::awaitable<wrap_t<T>, Executor> awaitable_wrap(net::awaitable<T, Executor> a, std::enable_if_t<!std::is_constructible_v<T>, int> * = nullptr)
+{
+    co_return std::optional<T>(co_await std::move(a));
+}
+
+template<typename T>
+T &unwrap(T &v, std::enable_if_t<std::is_default_constructible_v<T>, int> * = nullptr)
+{
+    return v;
+}
+
+template<typename T>
+T &unwrap(std::optional<T> &v, std::enable_if_t<!std::is_default_constructible_v<T>, int> * = nullptr)
+{
+    return *v;
+}
+
 template<typename T, typename Executor = net::any_io_executor>
 class batch_task : public boost::noncopyable
 {
@@ -35,8 +62,7 @@ public:
 private:
     std::vector<std::unique_ptr<net::cancellation_signal>> cancellation_signals_;
     std::atomic<uint64_t> pending_tasks_;
-    std::vector<uint64_t> completion_order_;
-    net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr, T)> task_result_channel_;
+    net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr, wrap_t<T>)> task_result_channel_;
 };
 
 template<typename Executor>
@@ -80,9 +106,10 @@ net::awaitable<void> batch_task<T, Executor>::add(net::awaitable<T, Executor1> t
     auto order = pending_tasks_++;
     auto &cancellation_signal = cancellation_signals_.emplace_back(new net::cancellation_signal);
 
-    net::co_spawn(executor, std::move(task), net::bind_cancellation_slot(cancellation_signal->slot(), [this, order](std::exception_ptr exception_ptr, T value) {
-        task_result_channel_.async_send({}, order, exception_ptr, std::move(value), [](sys::error_code) {});
-    }));
+    net::co_spawn(
+        executor, awaitable_wrap(std::move(task)), net::bind_cancellation_slot(cancellation_signal->slot(), [this, order](std::exception_ptr exception_ptr, wrap_t<T> value) {
+            task_result_channel_.async_send({}, order, exception_ptr, std::move(value), [](sys::error_code) {});
+        }));
 }
 
 template<typename Executor>
@@ -116,7 +143,7 @@ net::awaitable<std::tuple<std::vector<uint64_t>, std::vector<std::exception_ptr>
 
         completion_order.emplace_back(order);
         completion_exceptions.emplace_back(exception);
-        completion_values.emplace_back(std::move(value));
+        completion_values.emplace_back(std::move(unwrap<T>(value)));
 
         pending_tasks_--;
     }
