@@ -74,8 +74,6 @@ private:
 
     net::awaitable<void> output_loop();
 
-    net::awaitable<void> spawn_worker_loop(size_t worker_size);
-
     net::awaitable<void> worker_loop(uint64_t worker_id);
 
     std::tuple<uint64_t, std::bitset<64>, rpc::Cookie, std::span<uint8_t>> unpack(const std::vector<uint8_t> &receive_buffer);
@@ -92,6 +90,7 @@ private:
     stub_status status_;
     const methods &methods_;
     const uint64_t id_;
+    std::unique_ptr<batch_task<void>> runner_;
 
 private:
     static std::atomic<uint64_t> stub_id_max_;
@@ -123,20 +122,25 @@ stub<PacketHandler>::~stub()
 template<typename PacketHandler>
 net::awaitable<void> stub<PacketHandler>::run()
 {
+    auto executor = co_await net::this_coro::executor;
+    runner_ = std::make_unique<batch_task<void>>(executor);
+
     status_ = stub_status::running;
     BOOST_SCOPE_EXIT_ALL(&)
     {
         status_ = stub_status::stopped;
     };
 
-    auto executor = co_await net::this_coro::executor;
-    auto loop0 = net::co_spawn(executor, input_loop(), net::deferred);
-    auto loop1 = net::co_spawn(executor, output_loop(), net::deferred);
-    auto loop2 = net::co_spawn(executor, spawn_worker_loop(MAX_WORKER_SIZE), net::deferred);
+    co_await runner_->add(input_loop());
+    co_await runner_->add(output_loop());
 
-    auto runner = net::experimental::make_parallel_group(std::move(loop0), std::move(loop1), std::move(loop2));
+    for (int i = 0; i < MAX_WORKER_SIZE; i++)
+    {
+        co_await runner_->add(worker_loop(i));
+    }
 
-    auto result = co_await runner.async_wait(net::experimental::wait_for_one(), net::deferred);
+    sys::error_code error_code;
+    auto [order, exceptions] = co_await runner_->async_wait(error_code);
 }
 
 template<typename PacketHandler>
@@ -146,13 +150,6 @@ net::awaitable<void> stub<PacketHandler>::stop()
     {
         SPDLOG_TRACE("stub {} stopping", id_);
         status_ = stub_status::stopping;
-        method_channel_.cancel();
-        input_channel_.cancel();
-        output_channel_.cancel();
-        for (auto &[trace_id, channel] : calling_channel_)
-        {
-            channel->cancel();
-        }
     }
     co_return;
 }
@@ -326,19 +323,6 @@ net::awaitable<void> stub<PacketHandler>::output_loop()
         }
     }
     SPDLOG_TRACE("output_loop {} stopped", id_);
-}
-
-template<typename PacketHandler>
-net::awaitable<void> stub<PacketHandler>::spawn_worker_loop(size_t worker_size)
-{
-    auto executor = co_await net::this_coro::executor;
-    batch_task<void> runner(executor);
-    for (uint64_t id = 0; id < worker_size; id++)
-    {
-        co_await runner.add(worker_loop(id));
-    }
-
-    auto [order, exceptions] = co_await runner.async_wait();
 }
 
 template<typename PacketHandler>

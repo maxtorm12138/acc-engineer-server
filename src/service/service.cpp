@@ -8,6 +8,7 @@
 #include <boost/asio/experimental/cancellation_condition.hpp>
 
 #include "rpc/error_code.h"
+#include "rpc/batch_task.h"
 
 #include "proto/service.pb.h"
 
@@ -29,24 +30,47 @@ net::awaitable<void> service::run()
     methods_.implement<Authentication>(std::bind(&service::authentication, this, _1, _2));
 
     auto executor = co_await net::this_coro::executor;
-    auto loop0 = net::co_spawn(executor, udp_run(), net::deferred);
-    auto loop1 = net::co_spawn(executor, tcp_run(), net::deferred);
+    runner_ = std::make_unique<rpc::batch_task<void>>(executor);
 
-    auto runner = net::experimental::make_parallel_group(std::move(loop0), std::move(loop1));
-    auto result = co_await runner.async_wait(net::experimental::wait_for_one(), net::deferred);
+    co_await runner_->add(udp_run());
+    co_await runner_->add(tcp_run());
+
+    auto [order, exceptions] = co_await runner_->async_wait();
+    SPDLOG_TRACE("run stopped");
+}
+
+net::awaitable<void> service::stop()
+{
+    running_ = false;
+    runner_->cancel();
+    co_return;
 }
 
 net::awaitable<void> service::tcp_run()
 {
     auto executor = co_await net::this_coro::executor;
     net::ip::tcp::acceptor acceptor(executor, net::ip::tcp::endpoint{config_.address(), config_.port()});
-    SPDLOG_INFO("tcp_run listening on {}:{}", acceptor.local_endpoint().address().to_string(), acceptor.local_endpoint().port());
+    SPDLOG_TRACE("tcp_run listening on {}:{}", acceptor.local_endpoint().address().to_string(), acceptor.local_endpoint().port());
     while (running_)
     {
-        auto socket = co_await acceptor.async_accept(net::use_awaitable);
-        net::co_spawn(executor, new_tcp_connection(std::move(socket)), net::detached);
+        sys::error_code error_code;
+        auto socket = co_await acceptor.async_accept(rpc::await_error_code(error_code));
+        if (error_code)
+        {
+            if (error_code == net::error::operation_aborted)
+            {
+                SPDLOG_INFO("tcp_run acceptor.async_accept system_error: {}", error_code.message());
+            }
+            else
+            {
+                SPDLOG_CRITICAL("tcp_run acceptor.async_accept system_error: {}", error_code.message());
+            }
+            break;
+        }
+
+        co_await runner_->add(new_tcp_connection(std::move(socket)));
     }
-    SPDLOG_INFO("tcp_run stopped");
+    SPDLOG_TRACE("tcp_run stopped");
 }
 
 net::awaitable<void> service::udp_run()
@@ -59,19 +83,50 @@ net::awaitable<void> service::udp_run()
     acceptor.set_option(net::socket_base::reuse_address(true));
     acceptor.bind(bind_endpoint);
 
-    SPDLOG_INFO("udp run listening on {}:{}", acceptor.local_endpoint().address().to_string(), acceptor.local_endpoint().port());
+    SPDLOG_TRACE("udp run listening on {}:{}", acceptor.local_endpoint().address().to_string(), acceptor.local_endpoint().port());
     std::vector<uint8_t> initial(1500);
     while (running_)
     {
         net::ip::udp::endpoint remote;
-        size_t size_read = co_await acceptor.async_receive_from(net::buffer(initial), remote, net::use_awaitable);
+        sys::error_code error_code;
+        size_t size_read = co_await acceptor.async_receive_from(net::buffer(initial), remote, rpc::await_error_code(error_code));
+        if (error_code)
+        {
+            if (error_code == net::error::operation_aborted)
+            {
+                SPDLOG_INFO("udp_run acceptor.async_receive_from system_error: {}", error_code.message());
+            }
+            else
+            {
+                SPDLOG_CRITICAL("udp_run acceptor.async_receive_from system_error: {}", error_code.message());
+            }
+            break;
+        }
 
         if (auto it_session = udp_sessions_.get<tag_udp_endpoint>().find(remote); it_session != udp_sessions_.get<tag_udp_endpoint>().end())
         {
-            if (auto udp_stub = it_session->stub.lock(); udp_stub != nullptr)
+            auto udp_stub = it_session->stub.lock();
+            if (udp_stub == nullptr)
             {
-                co_await udp_stub->deliver(std::vector(initial.begin(), initial.begin() + size_read));
+                SPDLOG_CRITICAL("udp_run deliver udp_sessions lock fail address {}:{}", remote.address().to_string(), remote.port());
+                continue;
             }
+
+            co_await udp_stub->deliver(std::vector(initial.begin(), initial.begin() + size_read));
+            SPDLOG_TRACE("udp_run deliver udp_sessions: {} size: {}", udp_stub->id(), size_read);
+            continue;
+        }
+        else if (auto it_session = staged_udp_sessions_.get<tag_udp_endpoint>().find(remote); it_session != staged_udp_sessions_.get<tag_udp_endpoint>().end())
+        {
+            auto udp_stub = it_session->stub.lock();
+            if (udp_stub == nullptr)
+            {
+                SPDLOG_CRITICAL("udp_run deliver staged_udp_sessions lock fail address {}:{}", remote.address().to_string(), remote.port());
+                continue;
+            }
+
+            co_await udp_stub->deliver(std::vector(initial.begin(), initial.begin() + size_read));
+            SPDLOG_TRACE("udp_run deliver staged_udp_sessions: {} size: {}", udp_stub->id(), size_read);
             continue;
         }
 
@@ -81,9 +136,9 @@ net::awaitable<void> service::udp_run()
         socket.bind(bind_endpoint);
         socket.connect(remote);
 
-        net::co_spawn(executor, new_udp_connection(std::move(socket), std::vector(initial.begin(), initial.begin() + size_read)), net::detached);
+        co_await runner_->add(new_udp_connection(std::move(socket), std::vector(initial.begin(), initial.begin() + size_read)));
     }
-    SPDLOG_INFO("udp_run stopped");
+    SPDLOG_TRACE("udp_run stopped");
 }
 
 net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
@@ -118,7 +173,7 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
             }
         };
 
-        auto watcher = [this, that = shared_from_this(), timer, tcp_stub, stub_id]() -> net::awaitable<void> {
+        auto watcher = [this, timer, weak_tcp_stub = std::weak_ptr(tcp_stub), stub_id]() -> net::awaitable<void> {
             sys::error_code error_code;
             timer->expires_after(10s);
             do
@@ -126,11 +181,14 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
                 co_await timer->async_wait(rpc::await_error_code(error_code));
             } while (error_code == net::error::operation_aborted);
 
-            SPDLOG_TRACE("new_tcp_connection watcher {} expires", stub_id);
-            co_await tcp_stub->stop();
+            if (auto tcp_stub = weak_tcp_stub.lock(); tcp_stub != nullptr)
+            {
+                SPDLOG_TRACE("new_tcp_connection watcher {} expires", stub_id);
+                co_await tcp_stub->stop();
+            }
         };
 
-        net::co_spawn(co_await net::this_coro::executor, watcher(), net::detached);
+        co_await runner_->add(watcher());
         co_await tcp_stub->run();
     }
     catch (sys::system_error &ex)
@@ -173,7 +231,7 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
             }
         };
 
-        auto watcher = [this, that = shared_from_this(), timer, weak_udp_stub = std::weak_ptr(udp_stub), stub_id]() -> net::awaitable<void> {
+        auto watcher = [this, timer, weak_udp_stub = std::weak_ptr(udp_stub), stub_id]() -> net::awaitable<void> {
             sys::error_code error_code;
             timer->expires_after(10s);
             do
@@ -188,7 +246,7 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
             }
         };
 
-        net::co_spawn(co_await net::this_coro::executor, watcher(), net::detached);
+        co_await runner_->add(watcher());
         co_await udp_stub->deliver(std::move(initial));
         co_await udp_stub->run();
     }
@@ -293,10 +351,11 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
         auto node = view0.extract(context.stub_id);
         if (node.empty()) {}
 
-        auto session = node.value();
+        tcp_session session = node.value();
         session.driver_id = allocated_driver_id;
+        session.driver_name = request.driver_name();
 
-        tcp_sessions_.emplace(std::move(session));
+        tcp_sessions_.emplace(session);
     }
     else if (context.packet_handler_type == rpc::udp_packet_handler::type)
     {
@@ -304,16 +363,22 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
         auto node = view0.extract(context.stub_id);
         if (node.empty()) {}
 
-        auto session = node.value();
+        udp_session session = node.value();
         session.driver_id = allocated_driver_id;
+        session.driver_name = request.driver_name();
 
-        udp_sessions_.emplace(std::move(session));
+        udp_sessions_.emplace(session);
     }
 
-    /*
     DriverUpdate::Request driver_update_request;
+    for (auto driver : drivers_)
+    {
+        auto dri = driver_update_request.add_drivers();
+        dri->set_driver_id(driver.id);
+        dri->set_driver_name(driver.name);
+    }
+
     co_await post_tcp<DriverUpdate>(driver_update_request);
-    */
 
     Authentication::Response response;
     response.set_error_code(0);

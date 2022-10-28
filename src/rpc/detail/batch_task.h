@@ -14,6 +14,12 @@
 #include <boost/scope_exit.hpp>
 #include <boost/noncopyable.hpp>
 
+// spdlog
+#include <spdlog/spdlog.h>
+
+#include "await_error_code.h"
+#include "error_code.h"
+
 namespace acc_engineer::rpc::detail {
 namespace net = boost::asio;
 namespace sys = boost::system;
@@ -52,7 +58,7 @@ protected:
     }
 
 protected:
-    std::vector<std::unique_ptr<net::cancellation_signal>> cancellation_signals_;
+    std::vector<std::weak_ptr<net::cancellation_signal>> cancellation_signals_;
     std::atomic<uint64_t> pending_tasks_{0};
 };
 
@@ -61,7 +67,8 @@ class batch_task : public batch_task_base
 {
 public:
     batch_task(Executor &executor)
-        : task_result_channel_(executor){};
+        : task_result_channel_(std::make_shared<net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr, wrap_type<T>)>>(executor))
+    {}
 
 public:
     template<typename Executor1>
@@ -69,16 +76,33 @@ public:
     {
         auto executor = co_await net::this_coro::executor;
         auto order = pending_tasks_++;
-        auto &cancellation_signal = cancellation_signals_.emplace_back(new net::cancellation_signal);
 
-        net::co_spawn(
-            executor, wrap(std::move(task)), net::bind_cancellation_slot(cancellation_signal->slot(), [this, order](std::exception_ptr exception_ptr, wrap_type<T> value) {
-                task_result_channel_.async_send({}, order, exception_ptr, std::move(value), [](sys::error_code) {});
+        auto cancellation_signal = std::make_shared<net::cancellation_signal>();
+        cancellation_signals_.emplace_back(cancellation_signal);
+
+        auto chan = task_result_channel_;
+
+        net::co_spawn(executor, wrap(std::move(task)),
+            net::bind_cancellation_slot(cancellation_signal->slot(), [chan, cancellation_signal, order](std::exception_ptr exception_ptr, wrap_type<T> value) {
+                chan->async_send({}, order, exception_ptr, std::move(value), [](sys::error_code error_code) { SPDLOG_DEBUG("add error: {}", error_code.message()); });
             }));
     }
 
     net::awaitable<std::tuple<std::vector<uint64_t>, std::vector<std::exception_ptr>, std::vector<T>>> async_wait()
     {
+        sys::error_code error_code;
+        auto result = co_await async_wait(error_code);
+        if (error_code)
+        {
+            throw sys::system_error(error_code);
+        }
+
+        co_return result;
+    }
+
+    net::awaitable<std::tuple<std::vector<uint64_t>, std::vector<std::exception_ptr>, std::vector<T>>> async_wait(sys::error_code &error_code)
+    {
+        auto calcelation = co_await net::this_coro::cancellation_state;
         std::vector<uint64_t> completion_order;
         std::vector<std::exception_ptr> completion_exceptions;
         std::vector<T> completion_values;
@@ -90,7 +114,15 @@ public:
 
         while (pending_tasks_)
         {
-            auto [order, exception, value] = co_await task_result_channel_.async_receive(net::use_awaitable);
+            sys::error_code ec;
+            auto [order, exception, value] = co_await task_result_channel_->async_receive(await_error_code(ec));
+            if (ec)
+            {
+                cancel();
+                error_code = system_error::operation_canceled;
+                task_result_channel_ = nullptr;
+                break;
+            }
 
             completion_order.emplace_back(order);
             completion_exceptions.emplace_back(exception);
@@ -103,7 +135,7 @@ public:
     }
 
 private:
-    net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr, wrap_type<T>)> task_result_channel_;
+    std::shared_ptr<net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr, wrap_type<T>)>> task_result_channel_;
 };
 
 template<typename Executor>
@@ -111,7 +143,7 @@ class batch_task<void, Executor> : public batch_task_base
 {
 public:
     batch_task(Executor &executor)
-        : task_result_channel_(executor)
+        : task_result_channel_(std::make_shared<net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr)>>(executor))
     {}
 
 public:
@@ -120,14 +152,30 @@ public:
     {
         auto executor = co_await net::this_coro::executor;
         auto order = pending_tasks_++;
-        auto &cancellation_signal = cancellation_signals_.emplace_back(new net::cancellation_signal);
 
-        net::co_spawn(executor, std::move(task), net::bind_cancellation_slot(cancellation_signal->slot(), [this, order](std::exception_ptr exception_ptr) {
-            task_result_channel_.async_send({}, order, exception_ptr, [](sys::error_code) {});
+        auto cancellation_signal = std::make_shared<net::cancellation_signal>();
+        cancellation_signals_.emplace_back(cancellation_signal);
+
+        auto chan = task_result_channel_;
+
+        net::co_spawn(executor, std::move(task), net::bind_cancellation_slot(cancellation_signal->slot(), [chan, cancellation_signal, order](std::exception_ptr exception_ptr) {
+            chan->async_send({}, order, exception_ptr, [](sys::error_code error_code) { SPDLOG_DEBUG("add error: {}", error_code.message()); });
         }));
     }
 
     net::awaitable<std::tuple<std::vector<uint64_t>, std::vector<std::exception_ptr>>> async_wait()
+    {
+        sys::error_code error_code;
+        auto result = co_await async_wait(error_code);
+        if (error_code)
+        {
+            throw sys::system_error(error_code);
+        }
+
+        co_return result;
+    }
+
+    net::awaitable<std::tuple<std::vector<uint64_t>, std::vector<std::exception_ptr>>> async_wait(sys::error_code &error_code)
     {
         std::vector<uint64_t> completion_order;
         std::vector<std::exception_ptr> completion_exceptions;
@@ -139,7 +187,15 @@ public:
 
         while (pending_tasks_)
         {
-            auto [order, exception] = co_await task_result_channel_.async_receive(net::use_awaitable);
+            sys::error_code ec;
+            auto [order, exception] = co_await task_result_channel_->async_receive(await_error_code(ec));
+            if (ec)
+            {
+                cancel();
+                error_code = system_error::operation_canceled;
+                task_result_channel_ = nullptr;
+                break;
+            }
 
             completion_order.emplace_back(order);
             completion_exceptions.emplace_back(exception);
@@ -151,7 +207,7 @@ public:
     }
 
 private:
-    net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr)> task_result_channel_;
+    std::shared_ptr<net::experimental::channel<Executor, void(sys::error_code, uint64_t, std::exception_ptr)>> task_result_channel_;
 };
 
 } // namespace acc_engineer::rpc::detail

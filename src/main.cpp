@@ -1,15 +1,27 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/signal_set.hpp>
 
 #include "service/config.h"
 #include "service/service.h"
 
 namespace net = boost::asio;
 
+net::awaitable<void> co_signal(std::shared_ptr<acc_engineer::service> service)
+{
+    auto executor = co_await net::this_coro::executor;
+    net::signal_set signal_set(executor, SIGINT, SIGTERM);
+    auto signal = co_await signal_set.async_wait(net::use_awaitable);
+    SPDLOG_INFO("signal {}", signal);
+    co_await service->stop();
+}
+
 net::awaitable<void> co_main(int argc, char *argv[])
 {
+    auto executor = co_await net::this_coro::executor;
     auto config = acc_engineer::config::from_command_line(argc, argv);
     auto service = std::make_shared<acc_engineer::service>(config);
+    net::co_spawn(executor, co_signal(service), net::detached);
     co_await service->run();
 }
 

@@ -16,6 +16,7 @@
 // module
 #include "rpc/stub.h"
 #include "rpc/method.h"
+#include "rpc/batch_task.h"
 
 #include "config.h"
 
@@ -38,7 +39,7 @@ namespace net = boost::asio;
 namespace sys = boost::system;
 namespace mi = boost::multi_index;
 
-class service : public std::enable_shared_from_this<service>
+class service
 {
 public:
     explicit service(config cfg);
@@ -69,22 +70,28 @@ private:
     config config_;
     bool running_{false};
     rpc::methods methods_;
+    std::unique_ptr<rpc::batch_task<void>> runner_;
 
     struct udp_session
     {
         uint64_t id;
-        uint64_t driver_id;
         net::ip::udp::endpoint endpoint;
+        uint64_t driver_id;
+        std::string driver_name;
 
+        // connection objects
         std::weak_ptr<rpc::udp_stub> stub;
         std::weak_ptr<net::steady_timer> watcher;
     };
 
     struct tcp_session
     {
+        // index
         uint64_t id;
         uint64_t driver_id;
+        std::string driver_name;
 
+        // connection objects
         std::weak_ptr<rpc::tcp_stub> stub;
         std::weak_ptr<net::steady_timer> watcher;
     };
@@ -113,7 +120,8 @@ private:
         mi::indexed_by<
             mi::hashed_unique<mi::tag<tag_stub_id>, mi::key< &udp_session::id>>,
             mi::hashed_unique<mi::tag<tag_driver_id>, mi::key<&udp_session::driver_id>>,
-            mi::hashed_unique<mi::tag<tag_udp_endpoint>, mi::key<&udp_session::endpoint>>
+            mi::hashed_unique<mi::tag<tag_udp_endpoint>, mi::key<&udp_session::endpoint>>,
+            mi::hashed_unique<mi::tag<tag_driver_name>, mi::key<&udp_session::driver_name>>
         >
     > udp_sessions_;
 
@@ -129,7 +137,8 @@ private:
         tcp_session,
         mi::indexed_by<
             mi::hashed_unique<mi::tag<tag_stub_id>, mi::key<&tcp_session::id>>,
-            mi::hashed_unique<mi::tag<tag_driver_id>, mi::key<&tcp_session::driver_id>>
+            mi::hashed_unique<mi::tag<tag_driver_id>, mi::key<&tcp_session::driver_id>>,
+            mi::hashed_unique<mi::tag<tag_driver_name>, mi::key<&tcp_session::driver_name>>
         >
     > tcp_sessions_;
 
@@ -156,20 +165,18 @@ private:
 template<typename Message>
 net::awaitable<void> service::post_tcp(const rpc::request_t<Message> &request)
 {
-    /*
     auto executor = co_await net::this_coro::executor;
     rpc::batch_task<rpc::response_t<Message>> poster(executor);
 
-    for (auto [driver_id, weak_tcp_stub] : tcp_by_driver_id_)
+    for (auto &session : tcp_sessions_)
     {
-        if (auto tcp_stub = weak_tcp_stub.lock(); tcp_stub != nullptr)
+        if (auto stub = session.stub.lock(); stub != nullptr)
         {
-            poster.add([tcp_stub, &request]() -> net::awaitable<rpc::response_t<Message>> { co_return co_await tcp_stub->async_call<Message>(request); });
+            co_await poster.add(stub->async_call<Message>(request));
         }
     }
 
     auto [order, exceptions, results] = co_await poster.async_wait();
-    */
 }
 
 } // namespace acc_engineer
