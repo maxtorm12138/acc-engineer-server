@@ -1,5 +1,5 @@
-#ifndef ACC_ENGINEER_SERVER_CONFIG_H
-#define ACC_ENGINEER_SERVER_CONFIG_H
+#ifndef ACC_ENGINEER_SERVER_SERVICE_CONFIG_H
+#define ACC_ENGINEER_SERVER_SERVICE_CONFIG_H
 
 #include <boost/asio/ip/address.hpp>
 #include <boost/program_options.hpp>

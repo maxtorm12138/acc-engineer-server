@@ -48,6 +48,7 @@ set(ACC_ENGINEER_SERVER_RPC_SRCS
         src/rpc/detail/method.h
         src/rpc/detail/error_code.h
         src/rpc/detail/batch_task.h
+        src/rpc/detail/batch_task.cpp
         src/rpc/batch_task.h
         src/rpc/error_code.h
         ${RPC_PROTO_FILES})

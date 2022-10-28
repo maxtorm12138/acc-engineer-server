@@ -92,7 +92,7 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
     auto remote_endpoint = socket.remote_endpoint();
     using namespace std::chrono_literals;
 
-    SPDLOG_INFO("{} tcp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
+    SPDLOG_TRACE("new_tcp_connection {} tcp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
         auto tcp_stub = rpc::tcp_stub::create(std::move(socket), methods_);
@@ -126,7 +126,7 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
                 co_await timer->async_wait(rpc::await_error_code(error_code));
             } while (error_code == net::error::operation_aborted);
 
-            SPDLOG_DEBUG("watcher {} expire trigger", stub_id);
+            SPDLOG_TRACE("new_tcp_connection watcher {} expires", stub_id);
             co_await tcp_stub->stop();
         };
 
@@ -135,9 +135,10 @@ net::awaitable<void> service::new_tcp_connection(net::ip::tcp::socket socket)
     }
     catch (sys::system_error &ex)
     {
-        spdlog::error("{} tcp run exception: {}", stub_id, ex.what());
+        SPDLOG_ERROR("{} tcp run exception: {}", stub_id, ex.what());
     }
-    spdlog::info("{} tcp disconnected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
+
+    SPDLOG_TRACE("{} tcp disconnected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
 }
 
 net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, std::vector<uint8_t> initial)
@@ -146,7 +147,7 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
     auto remote_endpoint = socket.remote_endpoint();
     using namespace std::chrono_literals;
 
-    SPDLOG_INFO("{} udp connected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
+    SPDLOG_TRACE("new_udp_connection udp connected {}:{}", remote_endpoint.address().to_string(), remote_endpoint.port());
     try
     {
         auto udp_stub = rpc::udp_stub::create(std::move(socket), methods_);
@@ -164,11 +165,11 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
 
             if (auto it = view0.extract(stub_id); !it.empty())
             {
-                SPDLOG_DEBUG("new_udp_connection extract {} from staged_udp_sessions", stub_id);
+                SPDLOG_TRACE("new_udp_connection extract {} from staged_udp_sessions", stub_id);
             }
             else if (auto it = view1.extract(stub_id); !it.empty())
             {
-                SPDLOG_DEBUG("new_udp_connection extract {} from udp_sessions", stub_id);
+                SPDLOG_TRACE("new_udp_connection extract {} from udp_sessions", stub_id);
             }
         };
 
@@ -180,8 +181,11 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
                 co_await timer->async_wait(rpc::await_error_code(error_code));
             } while (error_code == net::error::operation_aborted);
 
-            SPDLOG_DEBUG("watcher {} expire trigger", stub_id);
-            co_await weak_udp_stub.lock()->stop();
+            if (auto udp_stub = weak_udp_stub.lock(); udp_stub != nullptr)
+            {
+                SPDLOG_INFO("new_udp_connection watcher {} expires", stub_id);
+                co_await udp_stub->stop();
+            }
         };
 
         net::co_spawn(co_await net::this_coro::executor, watcher(), net::detached);
@@ -190,20 +194,54 @@ net::awaitable<void> service::new_udp_connection(net::ip::udp::socket socket, st
     }
     catch (sys::system_error &ex)
     {
-        spdlog::error("{} udp run exception: {}", stub_id, ex.what());
+        SPDLOG_ERROR("{} udp run exception: {}", stub_id, ex.what());
     }
-    spdlog::info("{} udp disconnected {}:{}", stub_id, remote_endpoint.address().to_string(), remote_endpoint.port());
+
+    SPDLOG_TRACE("new_udp_connection udp disconnected {}:{}", remote_endpoint.address().to_string(), remote_endpoint.port());
 }
 
 net::awaitable<sys::error_code> service::timer_reset(uint64_t command_id, const rpc::context &context, google::protobuf::Message &)
 {
     using namespace std::chrono_literals;
-    if (auto it_timer = timer_by_id_.find(context.stub_id); it_timer != timer_by_id_.end())
+
+    if (context.packet_handler_type == rpc::tcp_packet_handler::type)
     {
-        if (auto timer = it_timer->second.lock(); timer != nullptr)
+        auto &view0 = staged_tcp_sessions_.get<tag_stub_id>();
+        auto &view1 = tcp_sessions_.get<tag_stub_id>();
+
+        if (auto it_session = view0.find(context.stub_id); it_session != view0.end())
         {
-            SPDLOG_DEBUG("timer_reset {} for {}", command_id, context.stub_id);
-            timer->expires_after(10s);
+            if (auto timer = it_session->watcher.lock(); timer != nullptr)
+            {
+                timer->expires_after(10s);
+            }
+        }
+        else if (auto it_session = view1.find(context.stub_id); it_session != view1.end())
+        {
+            if (auto timer = it_session->watcher.lock(); timer != nullptr)
+            {
+                timer->expires_after(10s);
+            }
+        }
+    }
+    else if (context.packet_handler_type == rpc::udp_packet_handler::type)
+    {
+        auto &view0 = staged_udp_sessions_.get<tag_stub_id>();
+        auto &view1 = udp_sessions_.get<tag_stub_id>();
+
+        if (auto it_session = view0.find(context.stub_id); it_session != view0.end())
+        {
+            if (auto timer = it_session->watcher.lock(); timer != nullptr)
+            {
+                timer->expires_after(10s);
+            }
+        }
+        else if (auto it_session = view1.find(context.stub_id); it_session != view1.end())
+        {
+            if (auto timer = it_session->watcher.lock(); timer != nullptr)
+            {
+                timer->expires_after(10s);
+            }
         }
     }
 
@@ -229,9 +267,10 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
     }
 
     uint64_t allocated_driver_id = 0;
-    if (auto it_driver = driver_by_name_.find(request.driver_name()); it_driver != driver_by_name_.end() && request.driver_id() != 0)
+    if (request.driver_id() != 0)
     {
-        if (it_driver->second != request.driver_id())
+        auto &view = drivers_.get<tag_driver_id>();
+        if (auto it_driver = view.find(request.driver_id()); it_driver != view.end() && it_driver->name != request.driver_name())
         {
             Authentication::Response response;
             response.set_error_code(2);
@@ -244,27 +283,37 @@ net::awaitable<Authentication::Response> service::authentication(const rpc::cont
     else
     {
         allocated_driver_id = driver_id_max_++;
-        driver_by_name_[request.driver_name()] = allocated_driver_id;
+        driver driver{.id = allocated_driver_id, .name = request.driver_name()};
+        drivers_.emplace(driver);
     }
 
     if (context.packet_handler_type == rpc::tcp_packet_handler::type)
     {
-        tcp_by_driver_id_[allocated_driver_id] = tcp_by_id_[context.stub_id];
+        auto &view0 = staged_tcp_sessions_.get<tag_stub_id>();
+        auto node = view0.extract(context.stub_id);
+        if (node.empty()) {}
+
+        auto session = node.value();
+        session.driver_id = allocated_driver_id;
+
+        tcp_sessions_.emplace(std::move(session));
     }
     else if (context.packet_handler_type == rpc::udp_packet_handler::type)
     {
-        udp_by_driver_id_[allocated_driver_id] = udp_by_id_[context.stub_id];
+        auto &view0 = staged_udp_sessions_.get<tag_stub_id>();
+        auto node = view0.extract(context.stub_id);
+        if (node.empty()) {}
+
+        auto session = node.value();
+        session.driver_id = allocated_driver_id;
+
+        udp_sessions_.emplace(std::move(session));
     }
 
+    /*
     DriverUpdate::Request driver_update_request;
-    for (const auto &[driver_name, driver_id] : driver_by_name_)
-    {
-        auto driver = driver_update_request.add_drivers();
-        driver->set_driver_name(driver_name);
-        driver->set_driver_id(driver_id);
-    }
-
     co_await post_tcp<DriverUpdate>(driver_update_request);
+    */
 
     Authentication::Response response;
     response.set_error_code(0);

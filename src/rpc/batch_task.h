@@ -1,5 +1,5 @@
-#ifndef ACC_ENGINEER_SERVER_BATCH_TASK_H
-#define ACC_ENGINEER_SERVER_BATCH_TASK_H
+#ifndef ACC_ENGINEER_SERVER_RPC_BATCH_TASK_H
+#define ACC_ENGINEER_SERVER_RPC_BATCH_TASK_H
 #include "detail/batch_task.h"
 
 namespace acc_engineer::rpc {

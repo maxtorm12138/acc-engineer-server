@@ -15,7 +15,7 @@ net::awaitable<void> co_main(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-    spdlog::set_level(spdlog::level::debug);
+    spdlog::set_level(spdlog::level::trace);
 
     net::io_context io_context;
 

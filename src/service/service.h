@@ -1,5 +1,5 @@
-#ifndef ACC_ENGINEER_SERVER_SERVICE_H
-#define ACC_ENGINEER_SERVER_SERVICE_H
+#ifndef ACC_ENGINEER_SERVER_SERVICE_SERVICE_H
+#define ACC_ENGINEER_SERVER_SERVICE_SERVICE_H
 
 // std
 #include <unordered_map>
@@ -16,12 +16,22 @@
 // module
 #include "rpc/stub.h"
 #include "rpc/method.h"
-#include "rpc/batch_task.h"
 
 #include "config.h"
 
 // protocol
 #include "proto/service.pb.h"
+
+namespace boost {
+template<>
+struct hash<boost::asio::ip::udp::endpoint>
+{
+    constexpr size_t operator()(const boost::asio::ip::udp::endpoint &ep) const noexcept
+    {
+        return std::hash<boost::asio::ip::udp::endpoint>{}(ep);
+    }
+};
+} // namespace boost
 
 namespace acc_engineer {
 namespace net = boost::asio;
@@ -146,6 +156,7 @@ private:
 template<typename Message>
 net::awaitable<void> service::post_tcp(const rpc::request_t<Message> &request)
 {
+    /*
     auto executor = co_await net::this_coro::executor;
     rpc::batch_task<rpc::response_t<Message>> poster(executor);
 
@@ -158,6 +169,7 @@ net::awaitable<void> service::post_tcp(const rpc::request_t<Message> &request)
     }
 
     auto [order, exceptions, results] = co_await poster.async_wait();
+    */
 }
 
 } // namespace acc_engineer

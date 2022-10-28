@@ -88,7 +88,7 @@ public:
         uint64_t command_id = Message::descriptor()->options().GetExtension(cmd_id);
         try
         {
-            SPDLOG_DEBUG("method {} invoke", command_id);
+            SPDLOG_TRACE("method {} invoke", command_id);
             request_t<Message> request{};
             if (!request.ParseFromArray(request_payload.data(), static_cast<int>(request_payload.size())))
             {
