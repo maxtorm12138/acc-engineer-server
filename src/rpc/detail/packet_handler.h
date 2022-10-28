@@ -9,6 +9,7 @@
 #include <boost/asio/awaitable.hpp>
 
 #include "await_error_code.h"
+#include "error_code.h"
 
 namespace acc_engineer::rpc::detail {
 namespace net = boost::asio;

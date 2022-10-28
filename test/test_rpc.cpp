@@ -76,7 +76,7 @@ net::awaitable<void> client_tcp(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-    spdlog::set_level(spdlog::level::debug);
+    spdlog::set_level(spdlog::level::trace);
     net::io_context io_context;
     using namespace std::string_literals;
     if (argv[1] == "client"s)
